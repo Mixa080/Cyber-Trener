@@ -1,0 +1,400 @@
+import cv2
+import mediapipe as mp
+import cvzone
+import tkinter as tk
+import customtkinter as ctk
+from PIL import Image, ImageTk
+import pyttsx3
+import speech_recognition as sr
+import threading
+import math
+import pyodbc
+import datetime
+import time
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("green")
+
+mp_drawing = mp.solutions.drawing_utils
+mp_pose = mp.solutions.pose
+
+DB_CONNECTION_STRING = (
+    r'DRIVER={ODBC Driver 17 for SQL Server};'
+    r'SERVER=UDOD;'
+    r'DATABASE=CyberTrenerDB;'
+    r'Trusted_Connection=yes;'
+)
+
+
+def get_db_connection():
+    try:
+        return pyodbc.connect(DB_CONNECTION_STRING, timeout=3)
+    except Exception:
+        return None
+
+
+def speak_async(text):
+    def run_speech():
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            engine = pyttsx3.init()
+
+            voices = engine.getProperty('voices')
+            for voice in voices:
+                if 'pl' in voice.languages or 'polish' in voice.name.lower():
+                    engine.setProperty('voice', voice.id)
+                    break
+
+            engine.setProperty('rate', 150)
+            engine.say(text)
+            engine.runAndWait()
+        except RuntimeError:
+            pass
+        except Exception:
+            pass
+
+    threading.Thread(target=run_speech, daemon=True).start()
+
+
+def calculate_angle(a, b, c):
+    angle = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0]))
+    angle = abs(angle)
+    if angle > 180.0:
+        angle = 360.0 - angle
+    return angle
+
+
+class CyberTrenerApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Cyber Trener - Digital Twin")
+        self.geometry("1100x800")
+        self.minsize(900, 700)
+
+        self.current_user_id = None
+        self.current_username = ""
+        self.rep_count = 0
+        self.stage = None
+        self.is_training = False
+        self.cap = None
+        self.start_time = 0
+
+        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+        self.container = ctk.CTkFrame(self, fg_color="transparent")
+        self.container.pack(fill="both", expand=True)
+
+        self.show_login_screen()
+
+    def clear_container(self):
+        for widget in self.container.winfo_children():
+            widget.destroy()
+
+    def show_login_screen(self):
+        self.clear_container()
+
+        login_frame = ctk.CTkFrame(self.container, corner_radius=15, width=400, height=450)
+        login_frame.place(relx=0.5, rely=0.5, anchor="center")
+        login_frame.pack_propagate(False)
+
+        ctk.CTkLabel(login_frame, text="Logowanie", font=ctk.CTkFont(size=28, weight="bold")).pack(pady=(40, 30))
+
+        self.user_entry = ctk.CTkEntry(login_frame, placeholder_text="Nazwa użytkownika", width=250, height=40,
+                                       font=ctk.CTkFont(size=14))
+        self.user_entry.pack(pady=10)
+
+        ctk.CTkEntry(login_frame, placeholder_text="Hasło (opcjonalne)", show="*", width=250, height=40,
+                     font=ctk.CTkFont(size=14)).pack(pady=10)
+
+        ctk.CTkButton(login_frame, text="Zaloguj / Zarejestruj", width=250, height=45,
+                      font=ctk.CTkFont(size=16, weight="bold"),
+                      command=self.process_login).pack(pady=(40, 20))
+
+    def process_login(self):
+        username = self.user_entry.get().strip()
+        if not username:
+            speak_async("Proszę podać nazwę użytkownika")
+            return
+
+        conn = get_db_connection()
+        if not conn:
+            speak_async("Błąd połączenia z bazą serwera")
+            return
+
+        c = conn.cursor()
+        c.execute("SELECT id, username FROM users WHERE username = ?", (username,))
+        user = c.fetchone()
+
+        if user:
+            self.current_user_id = user[0]
+            self.current_username = user[1]
+            speak_async(f"Witaj ponownie, {self.current_username}")
+        else:
+            c.execute("INSERT INTO users (username) OUTPUT INSERTED.id VALUES (?)", (username,))
+            new_id = c.fetchone()[0]
+            conn.commit()
+            self.current_user_id = int(new_id)
+            self.current_username = username
+            speak_async(f"Konto utworzone. Witaj, {self.current_username}")
+
+        conn.close()
+        self.show_dashboard_screen()
+
+    def show_dashboard_screen(self):
+        if hasattr(self, 'user_entry') and self.user_entry.winfo_exists():
+            self.current_user = self.user_entry.get()
+
+        self.clear_container()
+
+        header = ctk.CTkFrame(self.container, height=70, corner_radius=0, fg_color="#1f1f1f")
+        header.pack(fill="x", side="top")
+        ctk.CTkLabel(header, text=f"Witaj, {self.current_username}!", font=ctk.CTkFont(size=22, weight="bold")).pack(
+            side="left", padx=30, pady=20)
+        ctk.CTkButton(header, text="Wyloguj", width=100, fg_color="#E53935", hover_color="#C62828",
+                      command=self.show_login_screen).pack(side="right", padx=30, pady=20)
+
+        tabview = ctk.CTkTabview(self.container, width=1000, height=500)
+        tabview.pack(fill="both", expand=True, padx=40, pady=20)
+
+        tab_summary = tabview.add("Podsumowanie")
+        tab_history = tabview.add("Historia i Statystyki")
+
+        self.build_summary_tab(tab_summary)
+        self.build_history_tab(tab_history)
+
+        bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
+        bottom_frame.pack(fill="x", side="bottom", pady=20)
+
+        ctk.CTkButton(bottom_frame, text="▶ Rozpocznij Trening", height=60, width=300,
+                      font=ctk.CTkFont(size=20, weight="bold"),
+                      command=self.start_training).pack(pady=10)
+        ctk.CTkButton(bottom_frame, text="🎤 Nasłuchuj komend", height=40, width=300, fg_color="#FF9800",
+                      hover_color="#F57C00", text_color="white",
+                      command=self.listen_command).pack(pady=5)
+
+    def build_summary_tab(self, parent):
+        conn = get_db_connection()
+        total_reps, total_workouts = 0, 0
+        if conn:
+            c = conn.cursor()
+            c.execute("SELECT SUM(reps), COUNT(id) FROM workouts WHERE user_id = ?", (self.current_user_id,))
+            stats = c.fetchone()
+            conn.close()
+            if stats:
+                total_reps = stats[0] if stats[0] else 0
+                total_workouts = stats[1] if stats[1] else 0
+
+        left_col = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(left_col, text="Szybki Przegląd", font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color="#4CAF50").pack(anchor="w", padx=20, pady=(20, 10))
+        ctk.CTkLabel(left_col, text=f"🔥 Ukończone treningi: {total_workouts}", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
+        ctk.CTkLabel(left_col, text=f"💪 Łączna liczba powtórzeń: {total_reps}", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
+
+        right_col = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+        ctk.CTkLabel(right_col, text="Plan na dziś", font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color="#2196F3").pack(anchor="w", padx=20, pady=(20, 10))
+        ctk.CTkLabel(right_col, text="🎯 Ćwiczenie: Biceps z hantlami", font=ctk.CTkFont(size=16)).pack(anchor="w",
+                                                                                                       padx=20, pady=5)
+        ctk.CTkLabel(right_col, text="⏱ Cel: Skup się na płynnym ruchu", font=ctk.CTkFont(size=16)).pack(anchor="w",
+                                                                                                         padx=20,
+                                                                                                         pady=5)
+
+    def build_history_tab(self, parent):
+        history_frame = ctk.CTkScrollableFrame(parent, width=350, corner_radius=15, fg_color="#2b2b2b",
+                                               label_text="Ostatnie Treningi")
+        history_frame.pack(side="left", fill="y", padx=10, pady=10)
+
+        graph_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        graph_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+
+        conn = get_db_connection()
+        dates_for_graph = []
+        reps_for_graph = []
+
+        if conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT TOP 20 date, exercise_type, reps, duration_sec FROM workouts WHERE user_id = ? ORDER BY date DESC",
+                (self.current_user_id,))
+            rows = c.fetchall()
+
+            if not rows:
+                ctk.CTkLabel(history_frame, text="Brak historii treningów.", text_color="gray").pack(pady=20)
+            else:
+                for row in rows:
+                    date_str = row[0].strftime("%d.%m.%Y %H:%M")
+                    record = ctk.CTkFrame(history_frame, fg_color="#333333", corner_radius=10)
+                    record.pack(fill="x", pady=5, padx=5)
+                    ctk.CTkLabel(record, text=f"{date_str}", font=ctk.CTkFont(size=12, weight="bold"),
+                                 text_color="#2196F3").pack(anchor="w", padx=10, pady=(5, 0))
+                    ctk.CTkLabel(record, text=f"{row[1]} | {row[2]} powt. | {row[3]} sek",
+                                 font=ctk.CTkFont(size=14)).pack(anchor="w", padx=10, pady=(0, 5))
+
+            c.execute("""
+                SELECT TOP 7 CAST(date AS DATE), SUM(reps) 
+                FROM workouts 
+                WHERE user_id = ? 
+                GROUP BY CAST(date AS DATE) 
+                ORDER BY CAST(date AS DATE) ASC
+            """, (self.current_user_id,))
+            graph_data = c.fetchall()
+            conn.close()
+
+            for g_row in graph_data:
+                dates_for_graph.append(g_row[0].strftime("%d.%m"))
+                reps_for_graph.append(g_row[1])
+
+        if dates_for_graph:
+            plt.style.use('dark_background')
+            fig = Figure(figsize=(5, 4), dpi=100)
+            fig.patch.set_facecolor('#2b2b2b')
+            ax = fig.add_subplot(111)
+            ax.set_facecolor('#2b2b2b')
+
+            ax.plot(dates_for_graph, reps_for_graph, color='#4CAF50', marker='o', linestyle='-', linewidth=2,
+                    markersize=8)
+            ax.fill_between(dates_for_graph, reps_for_graph, color='#4CAF50', alpha=0.2)
+
+            ax.set_title('Postęp: Powtórzenia wg dni', color='white', pad=15)
+            ax.tick_params(axis='x', colors='white')
+            ax.tick_params(axis='y', colors='white')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_color('#555555')
+            ax.spines['left'].set_color('#555555')
+            ax.grid(color='#444444', linestyle='--', linewidth=0.5, alpha=0.7)
+
+            fig.tight_layout()
+
+            canvas = FigureCanvasTkAgg(fig, master=graph_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+        else:
+            ctk.CTkLabel(graph_frame, text="Zrób pierwszy trening, aby zobaczyć wykres!", font=ctk.CTkFont(size=16),
+                         text_color="gray").pack(expand=True)
+
+    def listen_command(self):
+        def recognize():
+            recognizer = sr.Recognizer()
+            with sr.Microphone() as source:
+                speak_async("Słucham komendy...")
+                try:
+                    audio = recognizer.listen(source, timeout=3)
+                    command = recognizer.recognize_google(audio, language="pl-PL")
+                    if "trening" in command.lower():
+                        self.after(0, self.start_training)
+                except Exception:
+                    pass
+
+        threading.Thread(target=recognize, daemon=True).start()
+
+    def start_training(self):
+        self.is_training = True
+        self.rep_count = 0
+        self.stage = None
+        self.start_time = time.time()
+
+        self.clear_container()
+
+        top_bar = ctk.CTkFrame(self.container, height=60, corner_radius=0, fg_color="#1f1f1f")
+        top_bar.pack(fill="x", side="top")
+
+        ctk.CTkButton(top_bar, text="Zakończ trening", width=120, fg_color="#E53935", hover_color="#C62828",
+                      command=self.stop_training).pack(side="left", padx=20, pady=15)
+
+        self.info_label = ctk.CTkLabel(top_bar, text="Powtórzenia: 0  |  Technika: Gotowy",
+                                       font=ctk.CTkFont(size=18, weight="bold"))
+        self.info_label.pack(side="right", padx=30, pady=15)
+
+        self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color="#111111")
+        self.video_frame.pack(pady=20, padx=20, expand=True)
+
+        self.video_label = tk.Label(self.video_frame, bg="#111111")
+        self.video_label.pack(padx=10, pady=10)
+
+        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
+        self.update_video()
+
+    def update_video(self):
+        if not self.is_training:
+            return
+
+        ret, frame = self.cap.read()
+        if ret:
+            frame = cv2.resize(frame, (640, 480))
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            results = self.pose.process(image_rgb)
+
+            if results.pose_landmarks:
+                mp_drawing.draw_landmarks(image_rgb, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+                landmarks = results.pose_landmarks.landmark
+
+                shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
+                            landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+                elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x,
+                         landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
+                wrist = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x,
+                         landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+
+                angle = calculate_angle(shoulder, elbow, wrist)
+                cvzone.putTextRect(image_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
+
+                feedback_text = "Dobrze"
+                if angle > 160:
+                    self.stage = "dół"
+                if angle < 40 and self.stage == 'dół':
+                    self.stage = "góra"
+                    self.rep_count += 1
+                    speak_async(f"{self.rep_count}")
+
+                if angle < 90 and angle > 50 and self.stage == 'dół':
+                    feedback_text = "Pełny zakres ruchu!"
+
+                self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_text}")
+
+            img = Image.fromarray(image_rgb)
+            imgtk = ImageTk.PhotoImage(image=img)
+            self.video_label.imgtk = imgtk
+            self.video_label.configure(image=imgtk)
+
+        if self.is_training:
+            self.after(15, self.update_video)
+
+    def stop_training(self):
+        self.is_training = False
+        if self.cap:
+            self.cap.release()
+
+        duration = int(time.time() - self.start_time)
+        current_date = datetime.datetime.now()
+
+        if self.rep_count > 0:
+            conn = get_db_connection()
+            if conn:
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec) VALUES (?, ?, ?, ?, ?)",
+                    (self.current_user_id, current_date, "Biceps", self.rep_count, duration))
+                conn.commit()
+                conn.close()
+                speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń.")
+        else:
+            speak_async("Trening zakończony.")
+
+        self.show_dashboard_screen()
+
+
+if __name__ == "__main__":
+    app = CyberTrenerApp()
+    app.mainloop()
