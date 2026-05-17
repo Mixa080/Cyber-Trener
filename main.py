@@ -1,71 +1,22 @@
 import cv2
-import mediapipe as mp
+from ultralytics import YOLO
 import cvzone
 import tkinter as tk
 import customtkinter as ctk
 from PIL import Image, ImageTk
-import pyttsx3
 import speech_recognition as sr
 import threading
-import math
-import pyodbc
 import datetime
 import time
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+from database import get_db_connection
+from utils import speak_async, calculate_angle
+
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
-
-mp_drawing = mp.solutions.drawing_utils
-mp_pose = mp.solutions.pose
-
-DB_CONNECTION_STRING = (
-    r'DRIVER={ODBC Driver 17 for SQL Server};'
-    r'SERVER=UDOD;'
-    r'DATABASE=CyberTrenerDB;'
-    r'Trusted_Connection=yes;'
-)
-
-
-def get_db_connection():
-    try:
-        return pyodbc.connect(DB_CONNECTION_STRING, timeout=3)
-    except Exception:
-        return None
-
-
-def speak_async(text):
-    def run_speech():
-        try:
-            import pythoncom
-            pythoncom.CoInitialize()
-            engine = pyttsx3.init()
-
-            voices = engine.getProperty('voices')
-            for voice in voices:
-                if 'pl' in voice.languages or 'polish' in voice.name.lower():
-                    engine.setProperty('voice', voice.id)
-                    break
-
-            engine.setProperty('rate', 150)
-            engine.say(text)
-            engine.runAndWait()
-        except RuntimeError:
-            pass
-        except Exception:
-            pass
-
-    threading.Thread(target=run_speech, daemon=True).start()
-
-
-def calculate_angle(a, b, c):
-    angle = math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0]))
-    angle = abs(angle)
-    if angle > 180.0:
-        angle = 360.0 - angle
-    return angle
 
 
 class CyberTrenerApp(ctk.CTk):
@@ -84,7 +35,7 @@ class CyberTrenerApp(ctk.CTk):
         self.cap = None
         self.start_time = 0
 
-        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.pose_model = YOLO('yolov8n-pose.pt')
 
         self.container = ctk.CTkFrame(self, fg_color="transparent")
         self.container.pack(fill="both", expand=True)
@@ -332,36 +283,36 @@ class CyberTrenerApp(ctk.CTk):
         ret, frame = self.cap.read()
         if ret:
             frame = cv2.resize(frame, (640, 480))
+            
+            results = self.pose_model(frame, verbose=False)
             image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            results = self.pose.process(image_rgb)
+            if len(results) > 0 and results[0].keypoints is not None and len(results[0].keypoints.xy) > 0:
+                annotated_frame = results[0].plot()
+                image_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                
+                keypoints = results[0].keypoints.xy[0].tolist()
+                
+                if len(keypoints) > 9 and keypoints[5][0] != 0 and keypoints[7][0] != 0 and keypoints[9][0] != 0:
+                    shoulder = [keypoints[5][0], keypoints[5][1]]
+                    elbow = [keypoints[7][0], keypoints[7][1]]
+                    wrist = [keypoints[9][0], keypoints[9][1]]
 
-            if results.pose_landmarks:
-                mp_drawing.draw_landmarks(image_rgb, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-                landmarks = results.pose_landmarks.landmark
+                    angle = calculate_angle(shoulder, elbow, wrist)
+                    cvzone.putTextRect(image_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
 
-                shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x,
-                            landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
-                elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x,
-                         landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
-                wrist = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x,
-                         landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+                    feedback_text = "Dobrze"
+                    if angle > 160:
+                        self.stage = "dół"
+                    if angle < 40 and self.stage == 'dół':
+                        self.stage = "góra"
+                        self.rep_count += 1
+                        speak_async(f"{self.rep_count}")
 
-                angle = calculate_angle(shoulder, elbow, wrist)
-                cvzone.putTextRect(image_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
+                    if angle < 90 and angle > 50 and self.stage == 'dół':
+                        feedback_text = "Pełny zakres ruchu!"
 
-                feedback_text = "Dobrze"
-                if angle > 160:
-                    self.stage = "dół"
-                if angle < 40 and self.stage == 'dół':
-                    self.stage = "góra"
-                    self.rep_count += 1
-                    speak_async(f"{self.rep_count}")
-
-                if angle < 90 and angle > 50 and self.stage == 'dół':
-                    feedback_text = "Pełny zakres ruchu!"
-
-                self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_text}")
+                    self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_text}")
 
             img = Image.fromarray(image_rgb)
             imgtk = ImageTk.PhotoImage(image=img)
