@@ -27,6 +27,8 @@ class CyberTrenerApp(ctk.CTk):
         self.geometry("1100x800")
         self.minsize(900, 700)
 
+
+
         self.current_user_id = None
         self.current_username = ""
         self.rep_count = 0
@@ -268,11 +270,12 @@ class CyberTrenerApp(ctk.CTk):
 
         self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color="#111111")
         self.video_frame.pack(pady=20, padx=20, expand=True)
-
-        self.video_label = tk.Label(self.video_frame, bg="#111111")
-        self.video_label.pack(padx=10, pady=10)
-
-        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        self.video_label_front = tk.Label(self.video_frame, bg="#0f172a")
+        self.video_label_front.pack(side="left", padx=10, pady=10)
+        self.video_label_side = tk.Label(self.video_frame, bg="#0f172a")
+        self.video_label_side.pack(side="right", padx=10, pady=10)
+        self.cap_front = cv2.VideoCapture(0) 
+        self.cap_side = cv2.VideoCapture(1) 
         speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
         self.update_video()
 
@@ -280,16 +283,21 @@ class CyberTrenerApp(ctk.CTk):
         if not self.is_training:
             return
 
-        ret, frame = self.cap.read()
-        if ret:
-            frame = cv2.resize(frame, (640, 480))
+        ret_front, frame_front = self.cap_front.read()
+        ret_side, frame_side = self.cap_side.read()
+        
+        if ret_front and ret_side:
+            frame_front = cv2.resize(frame_front, (480, 360))
+            frame_side = cv2.resize(frame_side, (480, 360))
             
-            results = self.pose_model(frame, verbose=False)
-            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.pose_model(frame_side, verbose=False)
+            
+            image_side_rgb = cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB)
+            image_front_rgb = cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB)
 
             if len(results) > 0 and results[0].keypoints is not None and len(results[0].keypoints.xy) > 0:
                 annotated_frame = results[0].plot()
-                image_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+                image_side_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
                 keypoints = results[0].keypoints.xy[0].tolist()
                 
@@ -299,7 +307,7 @@ class CyberTrenerApp(ctk.CTk):
                     wrist = [keypoints[9][0], keypoints[9][1]]
 
                     angle = calculate_angle(shoulder, elbow, wrist)
-                    cvzone.putTextRect(image_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
+                    cvzone.putTextRect(image_side_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
 
                     feedback_text = "Dobrze"
                     if angle > 160:
@@ -314,18 +322,25 @@ class CyberTrenerApp(ctk.CTk):
 
                     self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_text}")
 
-            img = Image.fromarray(image_rgb)
-            imgtk = ImageTk.PhotoImage(image=img)
-            self.video_label.imgtk = imgtk
-            self.video_label.configure(image=imgtk)
+            img_side = Image.fromarray(image_side_rgb)
+            imgtk_side = ImageTk.PhotoImage(image=img_side)
+            self.video_label_side.imgtk = imgtk_side
+            self.video_label_side.configure(image=imgtk_side)
+            
+            img_front = Image.fromarray(image_front_rgb)
+            imgtk_front = ImageTk.PhotoImage(image=img_front)
+            self.video_label_front.imgtk = imgtk_front
+            self.video_label_front.configure(image=imgtk_front)
 
         if self.is_training:
             self.after(15, self.update_video)
 
     def stop_training(self):
         self.is_training = False
-        if self.cap:
-            self.cap.release()
+        if hasattr(self, 'cap_front') and self.cap_front:
+            self.cap_front.release()
+        if hasattr(self, 'cap_side') and self.cap_side:
+            self.cap_side.release()
 
         duration = int(time.time() - self.start_time)
         current_date = datetime.datetime.now()
