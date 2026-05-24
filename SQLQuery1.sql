@@ -5,7 +5,8 @@ USE CyberTrenerDB;
 
 CREATE TABLE users (
     id INT IDENTITY(1,1) PRIMARY KEY, 
-    username NVARCHAR(255) UNIQUE NOT NULL
+    username NVARCHAR(255) UNIQUE NOT NULL,
+    password_hash NVARCHAR(255)
 );
 
 

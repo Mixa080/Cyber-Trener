@@ -15,8 +15,12 @@ from matplotlib.figure import Figure
 from database import get_db_connection
 from utils import speak_async, calculate_angle
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("green")
+import hashlib
+import settings_manager
+
+user_settings = settings_manager.load_settings()
+ctk.set_appearance_mode(user_settings.get("appearance", "Dark"))
+ctk.set_default_color_theme(user_settings.get("theme", "green"))
 
 
 class CyberTrenerApp(ctk.CTk):
@@ -61,10 +65,14 @@ class CyberTrenerApp(ctk.CTk):
                                        font=ctk.CTkFont(size=14))
         self.user_entry.pack(pady=10)
 
-        ctk.CTkEntry(login_frame, placeholder_text="Hasło (opcjonalne)", show="*", width=250, height=40,
-                     font=ctk.CTkFont(size=14)).pack(pady=10)
+        self.password_entry = ctk.CTkEntry(login_frame, placeholder_text="Hasło (opcjonalne)", show="*", width=250, height=40,
+                     font=ctk.CTkFont(size=14))
+        self.password_entry.pack(pady=10)
 
-        # TODO: Dodac reset pass (Kanban: To Do)
+        ctk.CTkButton(login_frame, text="Zapomniałem hasła?", width=200, height=20, 
+                      fg_color="transparent", hover_color="#2b2b2b", text_color="#A0A0A0",
+                      font=ctk.CTkFont(size=12, underline=True),
+                      command=self.show_reset_password_dialog).pack(pady=5)
 
         ctk.CTkButton(login_frame, text="Zaloguj / Zarejestruj", width=250, height=45,
                       font=ctk.CTkFont(size=16, weight="bold"),
@@ -72,9 +80,12 @@ class CyberTrenerApp(ctk.CTk):
 
     def process_login(self):
         username = self.user_entry.get().strip()
+        password = self.password_entry.get()
         if not username:
             speak_async("Proszę podać nazwę użytkownika")
             return
+
+        pwd_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
 
         conn = get_db_connection()
         if not conn:
@@ -82,15 +93,25 @@ class CyberTrenerApp(ctk.CTk):
             return
 
         c = conn.cursor()
-        c.execute("SELECT id, username FROM users WHERE username = ?", (username,))
+        c.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (username,))
         user = c.fetchone()
 
         if user:
+            db_hash = user[2]
+            if db_hash and not password:
+                speak_async("To konto wymaga hasła.")
+                conn.close()
+                return
+            if db_hash and db_hash != pwd_hash:
+                speak_async("Nieprawidłowe hasło.")
+                conn.close()
+                return
+
             self.current_user_id = user[0]
             self.current_username = user[1]
             speak_async(f"Witaj ponownie, {self.current_username}")
         else:
-            c.execute("INSERT INTO users (username) OUTPUT INSERTED.id VALUES (?)", (username,))
+            c.execute("INSERT INTO users (username, password_hash) OUTPUT INSERTED.id VALUES (?, ?)", (username, pwd_hash))
             new_id = c.fetchone()[0]
             conn.commit()
             self.current_user_id = int(new_id)
@@ -99,6 +120,42 @@ class CyberTrenerApp(ctk.CTk):
 
         conn.close()
         self.show_dashboard_screen()
+
+    def show_reset_password_dialog(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Reset Hasła")
+        dialog.geometry("300x250")
+        dialog.attributes("-topmost", True)
+        
+        ctk.CTkLabel(dialog, text="Zresetuj Hasło", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
+        user_input = ctk.CTkEntry(dialog, placeholder_text="Nazwa użytkownika")
+        user_input.pack(pady=10)
+        pass_input = ctk.CTkEntry(dialog, placeholder_text="Nowe hasło", show="*")
+        pass_input.pack(pady=10)
+        
+        def save_new_password():
+            username = user_input.get().strip()
+            new_password = pass_input.get()
+            if not username or not new_password:
+                speak_async("Podaj nazwę użytkownika i nowe hasło.")
+                return
+            
+            pwd_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            conn = get_db_connection()
+            if conn:
+                c = conn.cursor()
+                c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (pwd_hash, username))
+                if c.rowcount > 0:
+                    speak_async("Hasło zostało zaktualizowane.")
+                    dialog.destroy()
+                else:
+                    speak_async("Nie znaleziono takiego użytkownika.")
+                conn.commit()
+                conn.close()
+            else:
+                speak_async("Błąd połączenia z bazą.")
+        
+        ctk.CTkButton(dialog, text="Zapisz nowe hasło", command=save_new_password).pack(pady=15)
 
     def show_dashboard_screen(self):
         if hasattr(self, 'user_entry') and self.user_entry.winfo_exists():
@@ -125,7 +182,9 @@ class CyberTrenerApp(ctk.CTk):
         bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         bottom_frame.pack(fill="x", side="bottom", pady=20)
 
-        # TODO: Dodac ustawienia (Kanban: To Do)
+        ctk.CTkButton(bottom_frame, text="⚙ Ustawienia", height=40, width=300, fg_color="#555555",
+                      hover_color="#777777",
+                      command=self.show_settings_dialog).pack(pady=5)
 
         ctk.CTkButton(bottom_frame, text="▶ Rozpocznij Trening", height=60, width=300,
                       font=ctk.CTkFont(size=20, weight="bold"),
@@ -133,6 +192,35 @@ class CyberTrenerApp(ctk.CTk):
         ctk.CTkButton(bottom_frame, text="🎤 Nasłuchuj komend", height=40, width=300, fg_color="#FF9800",
                       hover_color="#F57C00", text_color="white",
                       command=self.listen_command).pack(pady=5)
+
+    def show_settings_dialog(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Ustawienia")
+        dialog.geometry("350x300")
+        dialog.attributes("-topmost", True)
+        
+        current_settings = settings_manager.load_settings()
+        
+        ctk.CTkLabel(dialog, text="Ustawienia Aplikacji", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(10, 20))
+        
+        ctk.CTkLabel(dialog, text="Motyw Aplikacji:").pack()
+        appearance_var = ctk.StringVar(value=current_settings.get("appearance", "Dark"))
+        appearance_menu = ctk.CTkOptionMenu(dialog, values=["Dark", "Light", "System"], variable=appearance_var)
+        appearance_menu.pack(pady=(0, 15))
+        
+        voice_var = ctk.BooleanVar(value=current_settings.get("voice_enabled", True))
+        voice_checkbox = ctk.CTkCheckBox(dialog, text="Asystent Głosowy (wymaga restartu)", variable=voice_var)
+        voice_checkbox.pack(pady=10)
+        
+        def save():
+            current_settings["appearance"] = appearance_var.get()
+            current_settings["voice_enabled"] = voice_var.get()
+            settings_manager.save_settings(current_settings)
+            ctk.set_appearance_mode(current_settings["appearance"])
+            speak_async("Ustawienia zostały zapisane.")
+            dialog.destroy()
+            
+        ctk.CTkButton(dialog, text="Zapisz", fg_color="#4CAF50", hover_color="#388E3C", command=save).pack(pady=20)
 
     def build_summary_tab(self, parent):
         conn = get_db_connection()
@@ -246,9 +334,12 @@ class CyberTrenerApp(ctk.CTk):
                 speak_async("Słucham komendy...")
                 try:
                     audio = recognizer.listen(source, timeout=3)
-                    # TODO: Dodac english? (Kanban: To Do)
-                    command = recognizer.recognize_google(audio, language="pl-PL")
-                    if "trening" in command.lower():
+                    try:
+                        command = recognizer.recognize_google(audio, language="pl-PL")
+                    except sr.UnknownValueError:
+                        command = recognizer.recognize_google(audio, language="en-US")
+                    
+                    if "trening" in command.lower() or "training" in command.lower() or "start" in command.lower():
                         self.after(0, self.start_training)
                 except Exception:
                     pass
@@ -351,16 +442,21 @@ class CyberTrenerApp(ctk.CTk):
         current_date = datetime.datetime.now()
 
         if self.rep_count > 0:
-            # TODO: Sprawdzenie zapisu treningów do bazy (Kanban: Review)
-            conn = get_db_connection()
-            if conn:
-                c = conn.cursor()
-                c.execute(
-                    "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec) VALUES (?, ?, ?, ?, ?)",
-                    (self.current_user_id, current_date, "Biceps", self.rep_count, duration))
-                conn.commit()
-                conn.close()
-                speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń.")
+            try:
+                conn = get_db_connection()
+                if conn:
+                    c = conn.cursor()
+                    c.execute(
+                        "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec) VALUES (?, ?, ?, ?, ?)",
+                        (self.current_user_id, current_date, "Biceps", self.rep_count, duration))
+                    conn.commit()
+                    conn.close()
+                    speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń.")
+                else:
+                    speak_async("Brak połączenia z bazą danych.")
+            except Exception as e:
+                print(f"Database error: {e}")
+                speak_async("Wystąpił błąd podczas zapisu treningu.")
         else:
             speak_async("Trening zakończony.")
 
