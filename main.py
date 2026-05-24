@@ -30,6 +30,7 @@ class CyberTrenerApp(ctk.CTk):
         self.title("Cyber Trener - Digital Twin")
         self.geometry("1100x800")
         self.minsize(900, 700)
+        self.configure(fg_color=("#F9F8F6", "#242424"))
 
 
 
@@ -55,7 +56,7 @@ class CyberTrenerApp(ctk.CTk):
     def show_login_screen(self):
         self.clear_container()
 
-        login_frame = ctk.CTkFrame(self.container, corner_radius=15, width=400, height=450)
+        login_frame = ctk.CTkFrame(self.container, corner_radius=15, width=400, height=450, fg_color=("#FFFFFF", "#2b2b2b"))
         login_frame.place(relx=0.5, rely=0.5, anchor="center")
         login_frame.pack_propagate(False)
 
@@ -70,7 +71,7 @@ class CyberTrenerApp(ctk.CTk):
         self.password_entry.pack(pady=10)
 
         ctk.CTkButton(login_frame, text="Zapomniałem hasła?", width=200, height=20, 
-                      fg_color="transparent", hover_color="#2b2b2b", text_color="#A0A0A0",
+                      fg_color="transparent", hover_color=("#E5E4E0", "#2b2b2b"), text_color=("#6B6B6B", "#A0A0A0"),
                       font=ctk.CTkFont(size=12, underline=True),
                       command=self.show_reset_password_dialog).pack(pady=5)
 
@@ -163,7 +164,7 @@ class CyberTrenerApp(ctk.CTk):
 
         self.clear_container()
 
-        header = ctk.CTkFrame(self.container, height=70, corner_radius=0, fg_color="#1f1f1f")
+        header = ctk.CTkFrame(self.container, height=70, corner_radius=0, fg_color=("#EAE9E4", "#1f1f1f"))
         header.pack(fill="x", side="top")
         ctk.CTkLabel(header, text=f"Witaj, {self.current_username}!", font=ctk.CTkFont(size=22, weight="bold")).pack(
             side="left", padx=30, pady=20)
@@ -182,8 +183,8 @@ class CyberTrenerApp(ctk.CTk):
         bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         bottom_frame.pack(fill="x", side="bottom", pady=20)
 
-        ctk.CTkButton(bottom_frame, text="⚙ Ustawienia", height=40, width=300, fg_color="#555555",
-                      hover_color="#777777",
+        ctk.CTkButton(bottom_frame, text="⚙ Ustawienia", height=40, width=300, fg_color=("#D4D3CF", "#555555"),
+                      hover_color=("#C4C3BF", "#777777"), text_color=("#000000", "#FFFFFF"),
                       command=self.show_settings_dialog).pack(pady=5)
 
         ctk.CTkButton(bottom_frame, text="▶ Rozpocznij Trening", height=60, width=300,
@@ -220,6 +221,9 @@ class CyberTrenerApp(ctk.CTk):
             speak_async("Ustawienia zostały zapisane.")
             dialog.destroy()
             
+            if not getattr(self, 'is_training', False):
+                self.show_dashboard_screen()
+            
         ctk.CTkButton(dialog, text="Zapisz", fg_color="#4CAF50", hover_color="#388E3C", command=save).pack(pady=20)
 
     def build_summary_tab(self, parent):
@@ -234,7 +238,7 @@ class CyberTrenerApp(ctk.CTk):
                 total_reps = stats[0] if stats[0] else 0
                 total_workouts = stats[1] if stats[1] else 0
 
-        left_col = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        left_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(left_col, text="Szybki Przegląd", font=ctk.CTkFont(size=20, weight="bold"),
                      text_color="#4CAF50").pack(anchor="w", padx=20, pady=(20, 10))
@@ -243,7 +247,7 @@ class CyberTrenerApp(ctk.CTk):
         ctk.CTkLabel(left_col, text=f"💪 Łączna liczba powtórzeń: {total_reps}", font=ctk.CTkFont(size=16)).pack(
             anchor="w", padx=20, pady=5)
 
-        right_col = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        right_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(right_col, text="Plan na dziś", font=ctk.CTkFont(size=20, weight="bold"),
                      text_color="#2196F3").pack(anchor="w", padx=20, pady=(20, 10))
@@ -254,11 +258,11 @@ class CyberTrenerApp(ctk.CTk):
                                                                                                          pady=5)
 
     def build_history_tab(self, parent):
-        history_frame = ctk.CTkScrollableFrame(parent, width=350, corner_radius=15, fg_color="#2b2b2b",
+        history_frame = ctk.CTkScrollableFrame(parent, width=350, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"),
                                                label_text="Ostatnie Treningi")
         history_frame.pack(side="left", fill="y", padx=10, pady=10)
 
-        graph_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color="#2b2b2b")
+        graph_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         graph_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
 
         conn = get_db_connection()
@@ -273,11 +277,11 @@ class CyberTrenerApp(ctk.CTk):
             rows = c.fetchall()
 
             if not rows:
-                ctk.CTkLabel(history_frame, text="Brak historii treningów.", text_color="gray").pack(pady=20)
+                ctk.CTkLabel(history_frame, text="Brak historii treningów.", text_color=("#6B6B6B", "gray")).pack(pady=20)
             else:
                 for row in rows:
                     date_str = row[0].strftime("%d.%m.%Y %H:%M")
-                    record = ctk.CTkFrame(history_frame, fg_color="#333333", corner_radius=10)
+                    record = ctk.CTkFrame(history_frame, fg_color=("#F9F8F6", "#333333"), corner_radius=10)
                     record.pack(fill="x", pady=5, padx=5)
                     ctk.CTkLabel(record, text=f"{date_str}", font=ctk.CTkFont(size=12, weight="bold"),
                                  text_color="#2196F3").pack(anchor="w", padx=10, pady=(5, 0))
@@ -299,24 +303,37 @@ class CyberTrenerApp(ctk.CTk):
                 reps_for_graph.append(g_row[1])
 
         if dates_for_graph:
-            plt.style.use('dark_background')
+            is_light = ctk.get_appearance_mode() == "Light"
+            if is_light:
+                plt.style.use('default')
+                bg_color = '#FFFFFF'
+                text_color = '#2D2D2D'
+                grid_color = '#E5E4E0'
+                spine_color = '#CCCCCC'
+            else:
+                plt.style.use('dark_background')
+                bg_color = '#2b2b2b'
+                text_color = 'white'
+                grid_color = '#444444'
+                spine_color = '#555555'
+
             fig = Figure(figsize=(5, 4), dpi=100)
-            fig.patch.set_facecolor('#2b2b2b')
+            fig.patch.set_facecolor(bg_color)
             ax = fig.add_subplot(111)
-            ax.set_facecolor('#2b2b2b')
+            ax.set_facecolor(bg_color)
 
             ax.plot(dates_for_graph, reps_for_graph, color='#4CAF50', marker='o', linestyle='-', linewidth=2,
                     markersize=8)
             ax.fill_between(dates_for_graph, reps_for_graph, color='#4CAF50', alpha=0.2)
 
-            ax.set_title('Postęp: Powtórzenia wg dni', color='white', pad=15)
-            ax.tick_params(axis='x', colors='white')
-            ax.tick_params(axis='y', colors='white')
+            ax.set_title('Postęp: Powtórzenia wg dni', color=text_color, pad=15)
+            ax.tick_params(axis='x', colors=text_color)
+            ax.tick_params(axis='y', colors=text_color)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
-            ax.spines['bottom'].set_color('#555555')
-            ax.spines['left'].set_color('#555555')
-            ax.grid(color='#444444', linestyle='--', linewidth=0.5, alpha=0.7)
+            ax.spines['bottom'].set_color(spine_color)
+            ax.spines['left'].set_color(spine_color)
+            ax.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
 
             fig.tight_layout()
 
@@ -325,7 +342,7 @@ class CyberTrenerApp(ctk.CTk):
             canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
         else:
             ctk.CTkLabel(graph_frame, text="Zrób pierwszy trening, aby zobaczyć wykres!", font=ctk.CTkFont(size=16),
-                         text_color="gray").pack(expand=True)
+                         text_color=("#6B6B6B", "gray")).pack(expand=True)
 
     def listen_command(self):
         def recognize():
@@ -354,7 +371,7 @@ class CyberTrenerApp(ctk.CTk):
 
         self.clear_container()
 
-        top_bar = ctk.CTkFrame(self.container, height=60, corner_radius=0, fg_color="#1f1f1f")
+        top_bar = ctk.CTkFrame(self.container, height=60, corner_radius=0, fg_color=("#EAE9E4", "#1f1f1f"))
         top_bar.pack(fill="x", side="top")
 
         ctk.CTkButton(top_bar, text="Zakończ trening", width=120, fg_color="#E53935", hover_color="#C62828",
@@ -364,11 +381,12 @@ class CyberTrenerApp(ctk.CTk):
                                        font=ctk.CTkFont(size=18, weight="bold"))
         self.info_label.pack(side="right", padx=30, pady=15)
 
-        self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color="#111111")
+        self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color=("#FFFFFF", "#111111"))
         self.video_frame.pack(pady=20, padx=20, expand=True)
-        self.video_label_front = tk.Label(self.video_frame, bg="#0f172a")
+        bg_color = "#F9F8F6" if ctk.get_appearance_mode() == "Light" else "#0f172a"
+        self.video_label_front = tk.Label(self.video_frame, bg=bg_color)
         self.video_label_front.pack(side="left", padx=10, pady=10)
-        self.video_label_side = tk.Label(self.video_frame, bg="#0f172a")
+        self.video_label_side = tk.Label(self.video_frame, bg=bg_color)
         self.video_label_side.pack(side="right", padx=10, pady=10)
         self.cap_front = cv2.VideoCapture(0) 
         self.cap_side = cv2.VideoCapture(1) 
