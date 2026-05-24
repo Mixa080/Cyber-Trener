@@ -16,7 +16,7 @@ Aplikacja automatyzuje proces treningowy, od planowania po szczegółową analit
 * **Dashboard Statystyk:** Wizualizacja postępów, wykresy siły i porównania tygodniowe na podstawie danych historycznych.
 
 ## 🗄️ Baza Danych (Data Storage)
-System wykorzystuje relacyjną bazę danych (np. SQLite/PostgreSQL) do trwałego przechowywania i zarządzania informacjami:
+System wykorzystuje relacyjną bazę danych MSSQL do trwałego przechowywania i zarządzania informacjami:
 * **Użytkownicy:** Profile, parametry fizyczne oraz cele treningowe.
 * **Plany Treningowe:** Predefiniowane i spersonalizowane zestawy ćwiczeń wraz z harmonogramem.
 * **Historia Sesji:** Szczegółowy zapis każdego treningu (liczba powtórzeń, czas trwania, wykryte błędy).
