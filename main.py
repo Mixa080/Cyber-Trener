@@ -64,6 +64,8 @@ class CyberTrenerApp(ctk.CTk):
         ctk.CTkEntry(login_frame, placeholder_text="Hasło (opcjonalne)", show="*", width=250, height=40,
                      font=ctk.CTkFont(size=14)).pack(pady=10)
 
+        # TODO: Dodac reset pass (Kanban: To Do)
+
         ctk.CTkButton(login_frame, text="Zaloguj / Zarejestruj", width=250, height=45,
                       font=ctk.CTkFont(size=16, weight="bold"),
                       command=self.process_login).pack(pady=(40, 20))
@@ -122,6 +124,8 @@ class CyberTrenerApp(ctk.CTk):
 
         bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         bottom_frame.pack(fill="x", side="bottom", pady=20)
+
+        # TODO: Dodac ustawienia (Kanban: To Do)
 
         ctk.CTkButton(bottom_frame, text="▶ Rozpocznij Trening", height=60, width=300,
                       font=ctk.CTkFont(size=20, weight="bold"),
@@ -242,6 +246,7 @@ class CyberTrenerApp(ctk.CTk):
                 speak_async("Słucham komendy...")
                 try:
                     audio = recognizer.listen(source, timeout=3)
+                    # TODO: Dodac english? (Kanban: To Do)
                     command = recognizer.recognize_google(audio, language="pl-PL")
                     if "trening" in command.lower():
                         self.after(0, self.start_training)
@@ -346,6 +351,7 @@ class CyberTrenerApp(ctk.CTk):
         current_date = datetime.datetime.now()
 
         if self.rep_count > 0:
+            # TODO: Sprawdzenie zapisu treningów do bazy (Kanban: Review)
             conn = get_db_connection()
             if conn:
                 c = conn.cursor()
