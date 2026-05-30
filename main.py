@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from database import get_db_connection
-from utils import speak_async, calculate_angle
+from utils import speak_async, calculate_angle, draw_centered_transparent_text, CameraThread
 
 import hashlib
 import settings_manager
@@ -392,8 +392,8 @@ class CyberTrenerApp(ctk.CTk):
         self.video_label_front.pack(side="left", padx=10, pady=10)
         self.video_label_side = tk.Label(self.video_frame, bg=bg_color)
         self.video_label_side.pack(side="right", padx=10, pady=10)
-        self.cap_front = cv2.VideoCapture(0) 
-        self.cap_side = cv2.VideoCapture(1) 
+        self.cap_front = CameraThread(0) 
+        self.cap_side = CameraThread(1) 
         speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
         self.update_video()
 

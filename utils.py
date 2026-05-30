@@ -65,3 +65,32 @@ def draw_centered_transparent_text(img, text, font_scale=1.0, thickness=2, color
     cv2.putText(img, text, (x, y), font, font_scale, color, thickness)
     
     return img
+
+class CameraThread:
+    def __init__(self, src=0):
+        self.cap = cv2.VideoCapture(src)
+        self.ret = False
+        self.frame = None
+        self.running = True
+        # Read the first frame
+        self.ret, self.frame = self.cap.read()
+        self.thread = threading.Thread(target=self.update, daemon=True)
+        self.thread.start()
+
+    def update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret:
+                self.ret = ret
+                self.frame = frame
+
+    def read(self):
+        # Return a copy to avoid race conditions with drawing
+        if self.frame is not None:
+            return self.ret, self.frame.copy()
+        return self.ret, self.frame
+
+    def release(self):
+        self.running = False
+        self.thread.join(timeout=1)
+        self.cap.release()
