@@ -404,16 +404,43 @@ class CyberTrenerApp(ctk.CTk):
             frame_front = cv2.resize(frame_front, (480, 360))
             frame_side = cv2.resize(frame_side, (480, 360))
             
-            results = self.pose_model(frame_side, verbose=False)
+            results_side = self.pose_model(frame_side, verbose=False)
+            results_front = self.pose_model(frame_front, verbose=False)
             
             image_side_rgb = cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB)
             image_front_rgb = cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB)
 
-            if len(results) > 0 and results[0].keypoints is not None and len(results[0].keypoints.xy) > 0:
-                annotated_frame = results[0].plot()
+            feedback_front = ""
+            feedback_side = ""
+
+            # --- FRONT CAMERA ANALYSIS ---
+            if len(results_front) > 0 and results_front[0].keypoints is not None and len(results_front[0].keypoints.xy) > 0:
+                keypoints_f = results_front[0].keypoints.xy[0].tolist()
+                if len(keypoints_f) > 6 and keypoints_f[5][0] != 0 and keypoints_f[6][0] != 0:
+                    left_shoulder_x = keypoints_f[5][0]
+                    right_shoulder_x = keypoints_f[6][0]
+                    center_x = (left_shoulder_x + right_shoulder_x) / 2
+                    
+                    frame_w = frame_front.shape[1]
+                    if center_x < frame_w * 0.35 or center_x > frame_w * 0.65:
+                        feedback_front = "Prosze stanac na srodku"
+                    else:
+                        if len(keypoints_f) > 10 and (keypoints_f[9][0] == 0 or keypoints_f[10][0] == 0):
+                            feedback_front = "Ustaw rece w kadrze"
+                else:
+                    feedback_front = "Stan w kadrze"
+            else:
+                feedback_front = "Brak sylwetki"
+
+            if feedback_front:
+                image_front_rgb = draw_centered_transparent_text(image_front_rgb, feedback_front, font_scale=0.8, color=(255, 100, 100))
+
+            # --- SIDE CAMERA ANALYSIS ---
+            if len(results_side) > 0 and results_side[0].keypoints is not None and len(results_side[0].keypoints.xy) > 0:
+                annotated_frame = results_side[0].plot()
                 image_side_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
-                keypoints = results[0].keypoints.xy[0].tolist()
+                keypoints = results_side[0].keypoints.xy[0].tolist()
                 
                 if len(keypoints) > 9 and keypoints[5][0] != 0 and keypoints[7][0] != 0 and keypoints[9][0] != 0:
                     shoulder = [keypoints[5][0], keypoints[5][1]]
@@ -421,20 +448,26 @@ class CyberTrenerApp(ctk.CTk):
                     wrist = [keypoints[9][0], keypoints[9][1]]
 
                     angle = calculate_angle(shoulder, elbow, wrist)
-                    cvzone.putTextRect(image_side_rgb, f"Kat: {int(angle)}", (20, 50), scale=2, thickness=2, colorR=(0, 150, 0))
+                    
+                    image_side_rgb = draw_centered_transparent_text(image_side_rgb, f"Kat: {int(angle)}", font_scale=0.7, y_offset=-100)
 
-                    feedback_text = "Dobrze"
-                    if angle > 160:
+                    if angle > 150:
                         self.stage = "dół"
-                    if angle < 40 and self.stage == 'dół':
+                        feedback_side = "Reka wyprostowana"
+                    elif angle < 40 and self.stage == 'dół':
                         self.stage = "góra"
                         self.rep_count += 1
                         speak_async(f"{self.rep_count}")
+                        feedback_side = "Swietnie! (+1)"
+                    elif angle < 90 and angle > 50 and self.stage == 'dół':
+                        feedback_side = "Dociagnij ruch"
+                    elif self.stage == 'góra' and angle > 50 and angle < 140:
+                        feedback_side = "Opuszczaj powoli"
 
-                    if angle < 90 and angle > 50 and self.stage == 'dół':
-                        feedback_text = "Pełny zakres ruchu!"
-
-                    self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_text}")
+                    if feedback_side:
+                        image_side_rgb = draw_centered_transparent_text(image_side_rgb, feedback_side, font_scale=0.8, color=(50, 255, 50))
+                    
+                    self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_side if feedback_side else 'W toku'}")
 
             img_side = Image.fromarray(image_side_rgb)
             imgtk_side = ImageTk.PhotoImage(image=img_side)

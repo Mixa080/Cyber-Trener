@@ -31,3 +31,37 @@ def calculate_angle(a, b, c):
     if angle > 180.0:
         angle = 360.0 - angle
     return angle
+
+import cv2
+import numpy as np
+
+def draw_centered_transparent_text(img, text, font_scale=1.0, thickness=2, color=(255, 255, 255), bg_color=(0, 0, 0), alpha=0.5, y_offset=0):
+    if not text:
+        return img
+        
+    overlay = img.copy()
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
+    
+    text_w, text_h = text_size
+    img_h, img_w = img.shape[:2]
+    
+    x = (img_w - text_w) // 2
+    y = (img_h + text_h) // 2 + y_offset
+    
+    # Draw background rectangle
+    padding = 10
+    cv2.rectangle(overlay, 
+                  (x - padding, y - text_h - padding), 
+                  (x + text_w + padding, y + baseline + padding), 
+                  bg_color, 
+                  -1)
+                  
+    # Blend the overlay with the original image
+    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+    
+    # Draw the text on top (fully opaque)
+    cv2.putText(img, text, (x, y), font, font_scale, color, thickness)
+    
+    return img
