@@ -1,0 +1,8 @@
+opencv-python
+ultralytics
+cvzone
+customtkinter
+Pillow
+SpeechRecognition
+matplotlib
+pyodbc
