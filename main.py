@@ -368,6 +368,10 @@ class CyberTrenerApp(ctk.CTk):
         self.rep_count = 0
         self.stage = None
         self.start_time = time.time()
+        
+        self.frame_counter = 0
+        self.last_results_front = None
+        self.last_results_side = None
 
         self.clear_container()
 
@@ -401,11 +405,20 @@ class CyberTrenerApp(ctk.CTk):
         ret_side, frame_side = self.cap_side.read()
         
         if ret_front and ret_side:
-            frame_front = cv2.resize(frame_front, (480, 360))
-            frame_side = cv2.resize(frame_side, (480, 360))
+            frame_front = cv2.resize(frame_front, (540, 405))
+            frame_side = cv2.resize(frame_side, (540, 405))
             
-            results_side = self.pose_model(frame_side, verbose=False)
-            results_front = self.pose_model(frame_front, verbose=False)
+            self.frame_counter += 1
+            if self.last_results_front is None or self.last_results_side is None:
+                self.last_results_front = self.pose_model(frame_front, verbose=False)
+                self.last_results_side = self.pose_model(frame_side, verbose=False)
+            elif self.frame_counter % 2 == 0:
+                self.last_results_front = self.pose_model(frame_front, verbose=False)
+            else:
+                self.last_results_side = self.pose_model(frame_side, verbose=False)
+            
+            results_side = self.last_results_side
+            results_front = self.last_results_front
             
             image_side_rgb = cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB)
             image_front_rgb = cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB)
@@ -436,8 +449,11 @@ class CyberTrenerApp(ctk.CTk):
                 image_front_rgb = draw_centered_transparent_text(image_front_rgb, feedback_front, font_scale=0.8, color=(255, 100, 100))
 
             # --- SIDE CAMERA ANALYSIS ---
-            if len(results_side) > 0 and results_side[0].keypoints is not None and len(results_side[0].keypoints.xy) > 0:
-                annotated_frame = results_side[0].plot()
+            if results_side and len(results_side) > 0 and results_side[0].keypoints is not None and len(results_side[0].keypoints.xy) > 0:
+                try:
+                    annotated_frame = results_side[0].plot(img=frame_side)
+                except Exception:
+                    annotated_frame = results_side[0].plot()
                 image_side_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
                 
                 keypoints = results_side[0].keypoints.xy[0].tolist()
