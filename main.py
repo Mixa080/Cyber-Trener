@@ -42,6 +42,8 @@ class CyberTrenerApp(ctk.CTk):
 
         self.current_user_id = None
         self.current_username = ""
+        self.reset_dialog_open = False
+        self.settings_dialog_open = False
         self.rep_count = 0
         self.stage = None
         self.is_training = False
@@ -129,6 +131,10 @@ class CyberTrenerApp(ctk.CTk):
         self.show_dashboard_screen()
 
     def show_reset_password_dialog(self):
+        if self.reset_dialog_open:
+            return
+
+        self.reset_dialog_open = True
         dialog = ctk.CTkToplevel(self)
         dialog.title("Reset Hasła")
 
@@ -140,20 +146,26 @@ class CyberTrenerApp(ctk.CTk):
         dialog.resizable(False, False)
 
         dialog.attributes("-topmost", True)
-        
+
+        def on_close():
+            self.reset_dialog_open = False
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+
         ctk.CTkLabel(dialog, text="Zresetuj Hasło", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
         user_input = ctk.CTkEntry(dialog, placeholder_text="Nazwa użytkownika")
         user_input.pack(pady=10)
         pass_input = ctk.CTkEntry(dialog, placeholder_text="Nowe hasło", show="*")
         pass_input.pack(pady=10)
-        
+
         def save_new_password():
             username = user_input.get().strip()
             new_password = pass_input.get()
             if not username or not new_password:
                 speak_async("Podaj nazwę użytkownika i nowe hasło.")
                 return
-            
+
             pwd_hash = hashlib.sha256(new_password.encode()).hexdigest()
             conn = get_db_connection()
             if conn:
@@ -161,6 +173,7 @@ class CyberTrenerApp(ctk.CTk):
                 c.execute("UPDATE users SET password_hash = ? WHERE username = ?", (pwd_hash, username))
                 if c.rowcount > 0:
                     speak_async("Hasło zostało zaktualizowane.")
+                    self.reset_dialog_open = False
                     dialog.destroy()
                 else:
                     speak_async("Nie znaleziono takiego użytkownika.")
@@ -168,7 +181,7 @@ class CyberTrenerApp(ctk.CTk):
                 conn.close()
             else:
                 speak_async("Błąd połączenia z bazą.")
-        
+
         ctk.CTkButton(dialog, text="Zapisz nowe hasło", command=save_new_password).pack(pady=15)
 
     def show_dashboard_screen(self):
@@ -213,6 +226,10 @@ class CyberTrenerApp(ctk.CTk):
                       command=self.listen_command).pack(side="left", padx=10, pady=5)
 
     def show_settings_dialog(self):
+        if self.settings_dialog_open:
+            return
+
+        self.settings_dialog_open = True
         dialog = ctk.CTkToplevel(self)
         dialog.title("Ustawienia")
 
@@ -224,31 +241,38 @@ class CyberTrenerApp(ctk.CTk):
         dialog.resizable(False, False)
 
         dialog.attributes("-topmost", True)
-        
+
+        def on_close():
+            self.settings_dialog_open = False
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+
         current_settings = settings_manager.load_settings()
-        
+
         ctk.CTkLabel(dialog, text="Ustawienia Aplikacji", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(10, 20))
-        
+
         ctk.CTkLabel(dialog, text="Motyw Aplikacji:").pack()
         appearance_var = ctk.StringVar(value=current_settings.get("appearance", "Dark"))
         appearance_menu = ctk.CTkOptionMenu(dialog, values=["Dark", "Light", "System"], variable=appearance_var)
         appearance_menu.pack(pady=(0, 15))
-        
+
         voice_var = ctk.BooleanVar(value=current_settings.get("voice_enabled", True))
         voice_checkbox = ctk.CTkCheckBox(dialog, text="Asystent Głosowy (wymaga restartu)", variable=voice_var)
         voice_checkbox.pack(pady=10)
-        
+
         def save():
             current_settings["appearance"] = appearance_var.get()
             current_settings["voice_enabled"] = voice_var.get()
             settings_manager.save_settings(current_settings)
             ctk.set_appearance_mode(current_settings["appearance"])
             speak_async("Ustawienia zostały zapisane.")
+            self.settings_dialog_open = False
             dialog.destroy()
-            
+
             if not getattr(self, 'is_training', False):
                 self.show_dashboard_screen()
-            
+
         ctk.CTkButton(dialog, text="Zapisz", fg_color="#4CAF50", hover_color="#388E3C", command=save).pack(pady=20)
 
     def build_summary_tab(self, parent):
