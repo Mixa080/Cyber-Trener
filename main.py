@@ -28,8 +28,14 @@ class CyberTrenerApp(ctk.CTk):
         super().__init__()
 
         self.title("Cyber Trener - Digital Twin")
-        self.geometry("1100x800")
+
+        width = 1000
+        height = 700
+        x = (self.winfo_screenwidth() - width) // 2
+        y = (self.winfo_screenheight() - height) // 3
+        self.geometry(f'{width}x{height}+{x}+{y}')
         self.minsize(900, 700)
+
         self.configure(fg_color=("#F9F8F6", "#242424"))
 
 
@@ -125,7 +131,14 @@ class CyberTrenerApp(ctk.CTk):
     def show_reset_password_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Reset Hasła")
-        dialog.geometry("300x250")
+
+        width = 250
+        height = 250
+        x = self.winfo_x() + (self.winfo_width() - width) // 2
+        y = self.winfo_y() + (self.winfo_height() - height) // 2
+        dialog.geometry(f'{width}x{height}+{x}+{y}')
+        dialog.resizable(False, False)
+
         dialog.attributes("-topmost", True)
         
         ctk.CTkLabel(dialog, text="Zresetuj Hasło", font=ctk.CTkFont(size=18, weight="bold")).pack(pady=10)
@@ -197,7 +210,14 @@ class CyberTrenerApp(ctk.CTk):
     def show_settings_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Ustawienia")
-        dialog.geometry("350x300")
+
+        width = 350
+        height = 300
+        x = self.winfo_x() + (self.winfo_width() - width) // 2
+        y = self.winfo_y() + (self.winfo_height() - height) // 2
+        dialog.geometry(f'{width}x{height}+{x}+{y}')
+        dialog.resizable(False, False)
+
         dialog.attributes("-topmost", True)
         
         current_settings = settings_manager.load_settings()
