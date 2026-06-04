@@ -196,16 +196,21 @@ class CyberTrenerApp(ctk.CTk):
         bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         bottom_frame.pack(fill="x", side="bottom", pady=20)
 
-        ctk.CTkButton(bottom_frame, text="⚙ Ustawienia", height=40, width=300, fg_color=("#D4D3CF", "#555555"),
-                      hover_color=("#C4C3BF", "#777777"), text_color=("#000000", "#FFFFFF"),
-                      command=self.show_settings_dialog).pack(pady=5)
+        buttons_row = ctk.CTkFrame(bottom_frame, fg_color="transparent")
+        buttons_row.pack(expand=True)
 
-        ctk.CTkButton(bottom_frame, text="▶ Rozpocznij Trening", height=60, width=300,
+        ctk.CTkButton(buttons_row, text="⚙ Ustawienia", height=40, width=250, fg_color=("#D4D3CF", "#555555"),
+                      font=ctk.CTkFont(size=18),
+                      hover_color=("#C4C3BF", "#777777"), text_color=("#000000", "#FFFFFF"),
+                      command=self.show_settings_dialog).pack(side="left", padx=10, pady=5)
+
+        ctk.CTkButton(buttons_row, text="▶ Rozpocznij Trening", height=60, width=300,
                       font=ctk.CTkFont(size=20, weight="bold"),
-                      command=self.start_training).pack(pady=10)
-        ctk.CTkButton(bottom_frame, text="🎤 Nasłuchuj komend", height=40, width=300, fg_color="#FF9800",
+                      command=self.start_training).pack(side="left", padx=10, pady=5)
+        ctk.CTkButton(buttons_row, text="🎤 Nasłuchuj komend", height=40, width=250, fg_color="#FF9800",
+                      font=ctk.CTkFont(size=18),
                       hover_color="#F57C00", text_color="white",
-                      command=self.listen_command).pack(pady=5)
+                      command=self.listen_command).pack(side="left", padx=10, pady=5)
 
     def show_settings_dialog(self):
         dialog = ctk.CTkToplevel(self)
