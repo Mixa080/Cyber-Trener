@@ -197,7 +197,7 @@ class CyberTrenerApp(ctk.CTk):
         ctk.CTkButton(header, text="Wyloguj", width=100, fg_color="#E53935", hover_color="#C62828",
                       command=self.show_login_screen).pack(side="right", padx=30, pady=20)
 
-        tabview = ctk.CTkTabview(self.container, width=1000, height=500)
+        tabview = ctk.CTkTabview(self.container, width=1000, height=400)
         tabview.pack(fill="both", expand=True, padx=40, pady=20)
 
         tab_summary = tabview.add("Podsumowanie")
@@ -205,6 +205,40 @@ class CyberTrenerApp(ctk.CTk):
 
         self.build_summary_tab(tab_summary)
         self.build_history_tab(tab_history)
+
+        def increment_weight():
+            current = self.get_weight_value()
+            if current < 50:
+                self.weight_spinbox.configure(state="normal")
+                self.weight_spinbox.delete(0, tk.END)
+                self.weight_spinbox.insert(0, str(current + 1))
+                self.weight_spinbox.configure(state="readonly")
+
+        def decrement_weight():
+            current = self.get_weight_value()
+            if current > 1:
+                self.weight_spinbox.configure(state="normal")
+                self.weight_spinbox.delete(0, tk.END)
+                self.weight_spinbox.insert(0, str(current - 1))
+                self.weight_spinbox.configure(state="readonly")
+
+        weight_frame = ctk.CTkFrame(self.container, fg_color="transparent")
+        weight_frame.pack(pady=5)
+
+        ctk.CTkLabel(weight_frame, text="Ciężar hantli:", font=ctk.CTkFont(size=18)).pack(side="left", padx=5)
+
+        ctk.CTkButton(weight_frame, text="−", width=30, height=30, font=ctk.CTkFont(size=15, weight="bold"),
+                      command=decrement_weight).pack(side="left", padx=1)
+
+        self.weight_spinbox = ctk.CTkEntry(weight_frame, width=50, justify="center", font=ctk.CTkFont(size=16))
+        self.weight_spinbox.pack(side="left", padx=2)
+        self.weight_spinbox.insert(0, str(self.get_last_weight()))
+        self.weight_spinbox.configure(state="readonly")
+
+        ctk.CTkButton(weight_frame, text="+", width=30, height=30, font=ctk.CTkFont(size=15, weight="bold"),
+                      command=increment_weight).pack(side="left", padx=2)
+
+        ctk.CTkLabel(weight_frame, text="kg", font=ctk.CTkFont(size=18)).pack(side="left", padx=3)
 
         bottom_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         bottom_frame.pack(fill="x", side="bottom", pady=20)
@@ -274,6 +308,29 @@ class CyberTrenerApp(ctk.CTk):
                 self.show_dashboard_screen()
 
         ctk.CTkButton(dialog, text="Zapisz", fg_color="#4CAF50", hover_color="#388E3C", command=save).pack(pady=20)
+
+    def get_last_weight(self):
+        conn = get_db_connection()
+        if conn:
+            try:
+                c = conn.cursor()
+                c.execute("SELECT TOP 1 dumbbell_weight_kg FROM workouts WHERE user_id = ? ORDER BY date DESC", (self.current_user_id,))
+                row = c.fetchone()
+                conn.close()
+                if row and row[0] is not None:
+                    return row[0]
+                else:
+                    return 1
+            except Exception as e:
+                print(f"Error getting last weight: {e}")
+                return 1
+        return 1
+
+    def get_weight_value(self):
+        try:
+            return int(self.weight_spinbox.get())
+        except:
+            return 1
 
     def build_summary_tab(self, parent):
         conn = get_db_connection()
@@ -414,6 +471,7 @@ class CyberTrenerApp(ctk.CTk):
 
     def start_training(self):
         self.is_training = True
+        self.current_weight = self.get_weight_value()
         self.rep_count = 0
         self.stage = None
         self.start_time = time.time()
@@ -442,7 +500,7 @@ class CyberTrenerApp(ctk.CTk):
         self.video_label_side = tk.Label(self.video_frame, bg=bg_color)
         self.video_label_side.pack(side="right", padx=10, pady=10)
         self.cap_front = CameraThread(0) 
-        self.cap_side = CameraThread(1) 
+        self.cap_side = CameraThread(1)
         speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
         self.update_video()
 
@@ -563,8 +621,8 @@ class CyberTrenerApp(ctk.CTk):
                 if conn:
                     c = conn.cursor()
                     c.execute(
-                        "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec) VALUES (?, ?, ?, ?, ?)",
-                        (self.current_user_id, current_date, "Biceps", self.rep_count, duration))
+                        "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec, dumbbell_weight_kg) VALUES (?, ?, ?, ?, ?, ?)",
+                        (self.current_user_id, current_date, "Biceps", self.rep_count, duration, self.current_weight))
                     conn.commit()
                     conn.close()
                     speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń.")

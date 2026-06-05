@@ -16,5 +16,6 @@ CREATE TABLE workouts (
     date DATETIME, 
     exercise_type NVARCHAR(100), 
     reps INT, 
-    duration_sec INT
+    duration_sec INT,
+    dumbbell_weight_kg INT
 );
