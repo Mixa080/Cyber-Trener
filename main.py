@@ -225,7 +225,7 @@ class CyberTrenerApp(ctk.CTk):
         weight_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         weight_frame.pack(pady=5)
 
-        ctk.CTkLabel(weight_frame, text="Ciężar hantli:", font=ctk.CTkFont(size=18)).pack(side="left", padx=5)
+        ctk.CTkLabel(weight_frame, text="Waga hantli:", font=ctk.CTkFont(size=18)).pack(side="left", padx=5)
 
         ctk.CTkButton(weight_frame, text="−", width=30, height=30, font=ctk.CTkFont(size=15, weight="bold"),
                       command=decrement_weight).pack(side="left", padx=1)
@@ -368,17 +368,19 @@ class CyberTrenerApp(ctk.CTk):
                                                label_text="Ostatnie Treningi")
         history_frame.pack(side="left", fill="y", padx=10, pady=10)
 
-        graph_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
-        graph_frame.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+        graph_frame = ctk.CTkScrollableFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
+        graph_frame.pack(side="right", fill="both", expand=True, padx=20, pady=10)
 
         conn = get_db_connection()
         dates_for_graph = []
         reps_for_graph = []
+        tonnage_for_graph = []
+        max_weight_for_graph = []
 
         if conn:
             c = conn.cursor()
             c.execute(
-                "SELECT TOP 20 date, exercise_type, reps, duration_sec FROM workouts WHERE user_id = ? ORDER BY date DESC",
+                "SELECT TOP 20 date, exercise_type, reps, dumbbell_weight_kg, duration_sec FROM workouts WHERE user_id = ? ORDER BY date DESC",
                 (self.current_user_id,))
             rows = c.fetchall()
 
@@ -391,11 +393,26 @@ class CyberTrenerApp(ctk.CTk):
                     record.pack(fill="x", pady=5, padx=5)
                     ctk.CTkLabel(record, text=f"{date_str}", font=ctk.CTkFont(size=12, weight="bold"),
                                  text_color="#2196F3").pack(anchor="w", padx=10, pady=(5, 0))
-                    ctk.CTkLabel(record, text=f"{row[1]} | {row[2]} powt. | {row[3]} sek",
+
+                    if row[4] < 60:
+                        duration = f"{row[4]} sek"
+                    else:
+                        minutes = row[4] // 60
+                        remaining_seconds = row[4] % 60
+                        if remaining_seconds == 0:
+                            duration = f"{minutes} min"
+                        else:
+                            duration = f"{minutes} min {remaining_seconds} sek"
+
+                    ctk.CTkLabel(record, text=f"{row[1]}      {row[2]:>2} powt.  x  {row[3]:>2} kg      {duration}",
                                  font=ctk.CTkFont(size=14)).pack(anchor="w", padx=10, pady=(0, 5))
 
             c.execute("""
-                SELECT TOP 7 CAST(date AS DATE), SUM(reps) 
+                SELECT TOP 7
+                    CAST(date AS DATE),
+                    SUM(reps),
+                    SUM(reps * dumbbell_weight_kg) as tonnage,
+                    MAX(dumbbell_weight_kg)
                 FROM workouts 
                 WHERE user_id = ? 
                 GROUP BY CAST(date AS DATE) 
@@ -406,7 +423,9 @@ class CyberTrenerApp(ctk.CTk):
 
             for g_row in graph_data:
                 dates_for_graph.append(g_row[0].strftime("%d.%m"))
-                reps_for_graph.append(g_row[1])
+                reps_for_graph.append(g_row[1] if g_row[1] else 0)
+                tonnage_for_graph.append(g_row[2] if g_row[2] else 0)
+                max_weight_for_graph.append(g_row[3] if g_row[3] else 0)
 
         if dates_for_graph:
             is_light = ctk.get_appearance_mode() == "Light"
@@ -423,29 +442,119 @@ class CyberTrenerApp(ctk.CTk):
                 grid_color = '#444444'
                 spine_color = '#555555'
 
-            fig = Figure(figsize=(5, 4), dpi=100)
-            fig.patch.set_facecolor(bg_color)
-            ax = fig.add_subplot(111)
-            ax.set_facecolor(bg_color)
+            # ========== Graph 1 ==========
 
-            ax.plot(dates_for_graph, reps_for_graph, color='#4CAF50', marker='o', linestyle='-', linewidth=2,
+            fig1 = Figure(figsize=(5, 4), dpi=100)
+            fig1.patch.set_facecolor(bg_color)
+            ax1 = fig1.add_subplot(111)
+            ax1.set_facecolor(bg_color)
+
+            ax1.plot(dates_for_graph, tonnage_for_graph, color='#2196F3', marker='o', linestyle='-', linewidth=2,
                     markersize=8)
-            ax.fill_between(dates_for_graph, reps_for_graph, color='#4CAF50', alpha=0.2)
+            ax1.fill_between(dates_for_graph, tonnage_for_graph, color='#306996', alpha=0.2)
 
-            ax.set_title('Postęp: Powtórzenia wg dni', color=text_color, pad=15)
-            ax.tick_params(axis='x', colors=text_color)
-            ax.tick_params(axis='y', colors=text_color)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['bottom'].set_color(spine_color)
-            ax.spines['left'].set_color(spine_color)
-            ax.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
+            y_min1 = min(tonnage_for_graph)
+            y_max1 = max(tonnage_for_graph)
+            y_range1 = y_max1 - y_min1
+            if y_range1 == 0:
+                ax1.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax1.set_ylim(bottom=y_min1 - 1, top=y_max1 + 1)
+            elif y_range1 < 5:
+                ax1.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax1.set_ylim(bottom=y_min1 - 0.5, top=y_max1 + 0.5)
+            else:
+                ax1.set_ylim(bottom=y_min1 - y_range1 * 0.1, top=y_max1 + y_range1 * 0.1)
 
-            fig.tight_layout()
+            ax1.set_title('Całkowity udźwig (kg) według dni', color=text_color, pad=15)
+            ax1.tick_params(axis='x', colors=text_color)
+            ax1.tick_params(axis='y', colors=text_color)
+            ax1.spines['top'].set_visible(False)
+            ax1.spines['right'].set_visible(False)
+            ax1.spines['bottom'].set_color(spine_color)
+            ax1.spines['left'].set_color(spine_color)
+            ax1.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
 
-            canvas = FigureCanvasTkAgg(fig, master=graph_frame)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+            fig1.subplots_adjust(left=0.09, right=0.99, top=0.9, bottom=0.06)
+
+            canvas1 = FigureCanvasTkAgg(fig1, master=graph_frame)
+            canvas1.draw()
+            canvas1.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+            # ========== Graph 2 ==========
+
+            fig2 = Figure(figsize=(5, 4), dpi=100)
+            fig2.patch.set_facecolor(bg_color)
+            ax2 = fig2.add_subplot(111)
+            ax2.set_facecolor(bg_color)
+
+            ax2.plot(dates_for_graph, max_weight_for_graph, color='#FF9800', marker='o', linestyle='-', linewidth=2,
+                    markersize=8)
+            ax2.fill_between(dates_for_graph, max_weight_for_graph, color='#a86e18', alpha=0.2)
+
+            y_min2 = min(max_weight_for_graph)
+            y_max2 = max(max_weight_for_graph)
+            y_range2 = y_max2 - y_min2
+            if y_range2 == 0:
+                ax2.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax2.set_ylim(bottom=y_min2 - 1, top=y_max2 + 1)
+            elif y_range2 < 5:
+                ax2.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax2.set_ylim(bottom=y_min2 - 0.5, top=y_max2 + 0.5)
+            else:
+                ax2.set_ylim(bottom=y_min2 - y_range2 * 0.1, top=y_max2 + y_range2 * 0.1)
+
+            ax2.set_title('Maksymalna waga hantli (kg) według dni', color=text_color, pad=15)
+            ax2.tick_params(axis='x', colors=text_color)
+            ax2.tick_params(axis='y', colors=text_color)
+            ax2.spines['top'].set_visible(False)
+            ax2.spines['right'].set_visible(False)
+            ax2.spines['bottom'].set_color(spine_color)
+            ax2.spines['left'].set_color(spine_color)
+            ax2.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
+
+            fig2.subplots_adjust(left=0.09, right=0.99, top=0.9, bottom=0.06)
+
+            canvas2 = FigureCanvasTkAgg(fig2, master=graph_frame)
+            canvas2.draw()
+            canvas2.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+            # ========== Graph 3 ==========
+
+            fig3 = Figure(figsize=(5, 4), dpi=100)
+            fig3.patch.set_facecolor(bg_color)
+            ax3 = fig3.add_subplot(111)
+            ax3.set_facecolor(bg_color)
+
+            ax3.plot(dates_for_graph, reps_for_graph, color='#4CAF50', marker='o', linestyle='-', linewidth=2,
+                    markersize=8)
+            ax3.fill_between(dates_for_graph, reps_for_graph, color='#417343', alpha=0.2)
+
+            y_min3 = min(reps_for_graph)
+            y_max3 = max(reps_for_graph)
+            y_range3 = y_max3 - y_min3
+            if y_range3 == 0:
+                ax3.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax3.set_ylim(bottom=y_min3 - 1, top=y_max3 + 1)
+            elif y_range3 < 5:
+                ax3.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+                ax3.set_ylim(bottom=y_min3 - 0.5, top=y_max3 + 0.5)
+            else:
+                ax3.set_ylim(bottom=y_min3 - y_range3 * 0.1, top=y_max3 + y_range3 * 0.1)
+
+            ax3.set_title('Liczba powtórzeń według dni', color=text_color, pad=15)
+            ax3.tick_params(axis='x', colors=text_color)
+            ax3.tick_params(axis='y', colors=text_color)
+            ax3.spines['top'].set_visible(False)
+            ax3.spines['right'].set_visible(False)
+            ax3.spines['bottom'].set_color(spine_color)
+            ax3.spines['left'].set_color(spine_color)
+            ax3.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
+
+            fig3.subplots_adjust(left=0.09, right=0.99, top=0.9, bottom=0.06)
+
+            canvas3 = FigureCanvasTkAgg(fig3, master=graph_frame)
+            canvas3.draw()
+            canvas3.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
         else:
             ctk.CTkLabel(graph_frame, text="Zrób pierwszy trening, aby zobaczyć wykres!", font=ctk.CTkFont(size=16),
                          text_color=("#6B6B6B", "gray")).pack(expand=True)
