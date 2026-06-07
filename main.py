@@ -17,10 +17,23 @@ from utils import speak_async, calculate_angle, draw_centered_transparent_text, 
 
 import hashlib
 import settings_manager
-
+import secrets
 user_settings = settings_manager.load_settings()
 ctk.set_appearance_mode(user_settings.get("appearance", "Dark"))
 ctk.set_default_color_theme(user_settings.get("theme", "green"))
+
+def hash_password(password):
+    salt = secrets.token_hex(16)
+    pwd_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}${pwd_hash}"
+
+def verify_password(password, stored):
+    try:
+        salt, saved_hash = stored.split("$")
+        pwd_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+        return pwd_hash == saved_hash
+    except:
+        return False
 
 
 class CyberTrenerApp(ctk.CTk):
