@@ -107,7 +107,6 @@ class CyberTrenerApp(ctk.CTk):
             speak_async("Proszę podać nazwę użytkownika")
             return
 
-        pwd_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
 
         conn = get_db_connection()
         if not conn:
@@ -124,7 +123,7 @@ class CyberTrenerApp(ctk.CTk):
                 speak_async("To konto wymaga hasła.")
                 conn.close()
                 return
-            if db_hash and db_hash != pwd_hash:
+            if db_hash and not verify_password(password, db_hash):
                 speak_async("Nieprawidłowe hasło.")
                 conn.close()
                 return
@@ -133,6 +132,7 @@ class CyberTrenerApp(ctk.CTk):
             self.current_username = user[1]
             speak_async(f"Witaj ponownie, {self.current_username}")
         else:
+            pwd_hash = hash_password(password) if password else None
             c.execute("INSERT INTO users (username, password_hash) OUTPUT INSERTED.id VALUES (?, ?)", (username, pwd_hash))
             new_id = c.fetchone()[0]
             conn.commit()
@@ -179,7 +179,7 @@ class CyberTrenerApp(ctk.CTk):
                 speak_async("Podaj nazwę użytkownika i nowe hasło.")
                 return
 
-            pwd_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            pwd_hash = hash_password(new_password)
             conn = get_db_connection()
             if conn:
                 c = conn.cursor()
