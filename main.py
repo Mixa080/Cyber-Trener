@@ -334,15 +334,36 @@ class CyberTrenerApp(ctk.CTk):
 
     def build_summary_tab(self, parent):
         conn = get_db_connection()
-        total_reps, total_workouts = 0, 0
+        total_reps, total_workouts, total_tonnage, avg_weight, best_weight, best_tonnage_day = 0, 0, 0, 0, 0, 0
+        best_tonnage_date = ""
         if conn:
             c = conn.cursor()
-            c.execute("SELECT SUM(reps), COUNT(id) FROM workouts WHERE user_id = ?", (self.current_user_id,))
+            c.execute("""
+                SELECT SUM(reps), COUNT(id), SUM(reps * dumbbell_weight_kg), AVG(dumbbell_weight_kg), MAX(dumbbell_weight_kg)
+                FROM workouts
+                WHERE user_id = ?
+            """, (self.current_user_id,))
             stats = c.fetchone()
-            conn.close()
             if stats:
                 total_reps = stats[0] if stats[0] else 0
                 total_workouts = stats[1] if stats[1] else 0
+                total_tonnage = stats[2] if stats[2] else 0
+                avg_weight = round(stats[3], 1) if stats[3] else 0
+                best_weight = stats[4] if stats[4] else 0
+
+            c.execute("""
+                SELECT TOP 1 CAST(date AS DATE), SUM(reps * dumbbell_weight_kg) as tonnage
+                FROM workouts 
+                WHERE user_id = ? 
+                GROUP BY CAST(date AS DATE)
+                ORDER BY tonnage DESC
+            """, (self.current_user_id,))
+            best_day = c.fetchone()
+            if best_day and best_day[1]:
+                best_tonnage_day = best_day[1]
+                best_tonnage_date = best_day[0].strftime("%d.%m.%Y")
+
+            conn.close()
 
         left_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
@@ -352,20 +373,23 @@ class CyberTrenerApp(ctk.CTk):
             anchor="w", padx=20, pady=5)
         ctk.CTkLabel(left_col, text=f"💪 Łączna liczba powtórzeń: {total_reps}", font=ctk.CTkFont(size=16)).pack(
             anchor="w", padx=20, pady=5)
+        ctk.CTkLabel(left_col, text=f"🏋 Łączny udźwig: {total_tonnage} kg", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
 
         right_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
-        ctk.CTkLabel(right_col, text="Plan na dziś", font=ctk.CTkFont(size=20, weight="bold"),
+        ctk.CTkLabel(right_col, text="Rekordy i Średnie", font=ctk.CTkFont(size=20, weight="bold"),
                      text_color="#2196F3").pack(anchor="w", padx=20, pady=(20, 10))
-        ctk.CTkLabel(right_col, text="🎯 Ćwiczenie: Biceps z hantlami", font=ctk.CTkFont(size=16)).pack(anchor="w",
-                                                                                                       padx=20, pady=5)
-        ctk.CTkLabel(right_col, text="⏱ Cel: Skup się na płynnym ruchu", font=ctk.CTkFont(size=16)).pack(anchor="w",
-                                                                                                         padx=20,
-                                                                                                         pady=5)
+        ctk.CTkLabel(right_col, text=f"📊 Średnia waga hantli: {avg_weight} kg", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
+        ctk.CTkLabel(right_col, text=f"🏆 Największa użyta waga: {best_weight} kg", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
+        ctk.CTkLabel(right_col, text=f"📅 Najlepszy dzień: {best_tonnage_date} ({best_tonnage_day} kg)", font=ctk.CTkFont(size=16)).pack(
+            anchor="w", padx=20, pady=5)
 
     def build_history_tab(self, parent):
         history_frame = ctk.CTkScrollableFrame(parent, width=350, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"),
-                                               label_text="Ostatnie Treningi")
+                                               label_text="Ostatnie Treningi", label_font=ctk.CTkFont(size=14))
         history_frame.pack(side="left", fill="y", padx=10, pady=10)
 
         graph_frame = ctk.CTkScrollableFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
@@ -392,7 +416,7 @@ class CyberTrenerApp(ctk.CTk):
                     record = ctk.CTkFrame(history_frame, fg_color=("#F9F8F6", "#333333"), corner_radius=10)
                     record.pack(fill="x", pady=5, padx=5)
                     ctk.CTkLabel(record, text=f"{date_str}", font=ctk.CTkFont(size=12, weight="bold"),
-                                 text_color="#2196F3").pack(anchor="w", padx=10, pady=(5, 0))
+                                 text_color="#2196F3").pack(anchor="w", padx=10, pady=(5, 1))
 
                     if row[4] < 60:
                         duration = f"{row[4]} sek"
@@ -404,8 +428,17 @@ class CyberTrenerApp(ctk.CTk):
                         else:
                             duration = f"{minutes} min {remaining_seconds} sek"
 
-                    ctk.CTkLabel(record, text=f"{row[1]}      {row[2]:>2} powt.  x  {row[3]:>2} kg      {duration}",
-                                 font=ctk.CTkFont(size=14)).pack(anchor="w", padx=10, pady=(0, 5))
+                    name = ctk.CTkFrame(record, fg_color=("#FFFFFF", "#383838"), corner_radius=10)
+                    name.pack(side="left", fill="x", pady=(0, 10), padx=(10, 5))
+                    ctk.CTkLabel(name, text=row[1], font=ctk.CTkFont(size=14)).pack(padx=8)
+
+                    reps = ctk.CTkFrame(record, fg_color=("#FFFFFF", "#383838"), corner_radius=10)
+                    reps.pack(side="left", fill="x", pady=(0, 10))
+                    ctk.CTkLabel(reps, text=f"{row[2]:>2} powt.  x  {row[3]:>2} kg", font=ctk.CTkFont(size=14)).pack(padx=8)
+
+                    dur = ctk.CTkFrame(record, fg_color=("#FFFFFF", "#383838"), corner_radius=10)
+                    dur.pack(side="left", fill="x", pady=(0, 10), padx=5)
+                    ctk.CTkLabel(dur, text=duration, font=ctk.CTkFont(size=14)).pack(padx=8)
 
             c.execute("""
                 SELECT TOP 7
