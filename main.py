@@ -606,8 +606,34 @@ class CyberTrenerApp(ctk.CTk):
                     
                     if "trening" in command.lower() or "training" in command.lower() or "start" in command.lower():
                         self.after(0, self.start_training)
+                    elif "yuri" in command.lower() or "juri" in command.lower():
+                        speak_async("Pokorny")
                 except Exception:
                     pass
+
+        threading.Thread(target=recognize, daemon=True).start()
+
+    def listen_during_training(self):
+        def recognize():
+            recognizer = sr.Recognizer()
+            try:
+                with sr.Microphone() as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    while getattr(self, 'is_training', False):
+                        try:
+                            audio = recognizer.listen(source, timeout=2, phrase_time_limit=3)
+                            try:
+                                command = recognizer.recognize_google(audio, language="pl-PL").lower()
+                            except sr.UnknownValueError:
+                                command = recognizer.recognize_google(audio, language="en-US").lower()
+                            
+                            if "stop" in command or "koniec" in command or "zakończ" in command:
+                                self.after(0, self.stop_training)
+                                break
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         threading.Thread(target=recognize, daemon=True).start()
 
@@ -617,6 +643,7 @@ class CyberTrenerApp(ctk.CTk):
         self.rep_count = 0
         self.stage = None
         self.start_time = time.time()
+        self.last_stage_time = time.time()
         
         self.frame_counter = 0
         self.last_results_front = None
@@ -637,14 +664,29 @@ class CyberTrenerApp(ctk.CTk):
         self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color=("#FFFFFF", "#111111"))
         self.video_frame.pack(pady=20, padx=20, expand=True)
         bg_color = "#F9F8F6" if ctk.get_appearance_mode() == "Light" else "#0f172a"
-        self.video_label_front = tk.Label(self.video_frame, bg=bg_color)
-        self.video_label_front.pack(side="left", padx=10, pady=10)
-        self.video_label_side = tk.Label(self.video_frame, bg=bg_color)
-        self.video_label_side.pack(side="right", padx=10, pady=10)
+        
+        self.front_frame = ctk.CTkFrame(self.video_frame, fg_color="transparent")
+        self.front_frame.pack(side="left", padx=10, pady=10)
+        self.video_label_front = tk.Label(self.front_frame, bg=bg_color)
+        self.video_label_front.pack()
+        self.feedback_label_front = ctk.CTkLabel(self.front_frame, text="Stan w kadrze", font=ctk.CTkFont(size=18, weight="bold"), text_color="#FF6464")
+        self.feedback_label_front.pack(pady=5)
+
+        self.side_frame = ctk.CTkFrame(self.video_frame, fg_color="transparent")
+        self.side_frame.pack(side="right", padx=10, pady=10)
+        self.video_label_side = tk.Label(self.side_frame, bg=bg_color)
+        self.video_label_side.pack()
+        self.feedback_label_side = ctk.CTkLabel(self.side_frame, text="Przygotuj się", font=ctk.CTkFont(size=18, weight="bold"), text_color="#32FF32")
+        self.feedback_label_side.pack(pady=5)
+
         self.cap_front = CameraThread(0) 
         self.cap_side = CameraThread(1)
         speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
         self.update_video()
+        
+        current_settings = settings_manager.load_settings()
+        if current_settings.get("voice_enabled", True):
+            self.listen_during_training()
 
     def update_video(self):
         if not self.is_training:
@@ -695,7 +737,9 @@ class CyberTrenerApp(ctk.CTk):
                 feedback_front = "Brak sylwetki"
 
             if feedback_front:
-                image_front_rgb = draw_centered_transparent_text(image_front_rgb, feedback_front, font_scale=0.8, color=(255, 100, 100))
+                self.feedback_label_front.configure(text=feedback_front, text_color="#FF6464")
+            else:
+                self.feedback_label_front.configure(text="Poprawna pozycja", text_color="#32FF32")
 
             # --- SIDE CAMERA ANALYSIS ---
             if results_side and len(results_side) > 0 and results_side[0].keypoints is not None and len(results_side[0].keypoints.xy) > 0:
@@ -713,24 +757,64 @@ class CyberTrenerApp(ctk.CTk):
                     wrist = [keypoints[9][0], keypoints[9][1]]
 
                     angle = calculate_angle(shoulder, elbow, wrist)
+                    current_time = time.time()
                     
-                    image_side_rgb = draw_centered_transparent_text(image_side_rgb, f"Kat: {int(angle)}", font_scale=0.7, y_offset=-100)
-
                     if angle > 150:
+                        if self.stage in ["góra", "opuszczanie"]:
+                            ecc_dur = current_time - self.last_stage_time
+                            if ecc_dur < 0.6:
+                                feedback_side = "Za szybko w dół! (Zbyt swobodnie / вольней)"
+                            else:
+                                feedback_side = "Ręka wyprostowana (dół)"
+                        elif self.stage != "dół":
+                            feedback_side = "Ręka wyprostowana (dół)"
                         self.stage = "dół"
-                        feedback_side = "Reka wyprostowana"
-                    elif angle < 40 and self.stage == 'dół':
-                        self.stage = "góra"
-                        self.rep_count += 1
-                        speak_async(f"{self.rep_count}")
-                        feedback_side = "Swietnie! (+1)"
-                    elif angle < 90 and angle > 50 and self.stage == 'dół':
-                        feedback_side = "Dociagnij ruch"
-                    elif self.stage == 'góra' and angle > 50 and angle < 140:
-                        feedback_side = "Opuszczaj powoli"
+                        self.last_stage_time = current_time
+                        
+                    elif angle < 40:
+                        if self.stage in ['dół', 'podnoszenie']:
+                            conc_dur = current_time - self.last_stage_time
+                            self.rep_count += 1
+                            speak_async(f"{self.rep_count}")
+                            
+                            if conc_dur > 2.0:
+                                feedback_side = "Świetnie (+1)! Ale spróbuj szybciej (шибчей)."
+                            elif conc_dur < 0.5:
+                                feedback_side = "Świetnie (+1)! Ale płynniej i swobodniej (вольней)."
+                            else:
+                                feedback_side = "Idealne powtórzenie (+1)!"
+                                
+                            self.stage = "góra"
+                            self.last_stage_time = current_time
+                            
+                    elif self.stage == 'dół' and angle < 140:
+                        self.stage = 'podnoszenie'
+                        self.last_stage_time = current_time
+                        feedback_side = "Płynnie w górę, pracuj bicepsem..."
+                        
+                    elif self.stage == 'podnoszenie':
+                        conc_dur = current_time - self.last_stage_time
+                        if conc_dur > 1.5:
+                            feedback_side = "Trochę szybciej! (шибчей) Nie zatrzymuj ruchu."
+                        else:
+                            feedback_side = "Dobrze, dociągnij ruch."
+                            
+                    elif self.stage == 'góra' and angle > 50:
+                        self.stage = 'opuszczanie'
+                        self.last_stage_time = current_time
+                        feedback_side = "Opuszczaj powoli, pod kontrolą..."
+                        
+                    elif self.stage == 'opuszczanie':
+                        ecc_dur = current_time - self.last_stage_time
+                        if ecc_dur < 0.4:
+                            feedback_side = "Za szybko! Hamuj ciężar."
+                        else:
+                            feedback_side = "Pełna kontrola, bardzo dobrze."
 
                     if feedback_side:
-                        image_side_rgb = draw_centered_transparent_text(image_side_rgb, feedback_side, font_scale=0.8, color=(50, 255, 50))
+                        self.feedback_label_side.configure(text=f"{feedback_side} (Kąt: {int(angle)}°)", text_color="#32FF32" if "+" in feedback_side or "Dobrze" in feedback_side or "Pełna kontrola" in feedback_side or "Idealne" in feedback_side else "#FFD700")
+                    else:
+                        self.feedback_label_side.configure(text=f"Wykryto ramię (Kąt: {int(angle)}°)", text_color="#FFFFFF")
                     
                     self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_side if feedback_side else 'W toku'}")
 
