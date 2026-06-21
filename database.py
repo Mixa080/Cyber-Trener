@@ -25,6 +25,18 @@ def _ensure_columns(conn):
                 ALTER TABLE workouts ADD dumbbell_weight_kg INT
             END
         """)
+        c.execute("""
+            IF COL_LENGTH('workouts', 'quality_percentage') IS NULL
+            BEGIN
+                ALTER TABLE workouts ADD quality_percentage INT
+            END
+        """)
+        c.execute("""
+            IF COL_LENGTH('workouts', 'errors_list') IS NULL
+            BEGIN
+                ALTER TABLE workouts ADD errors_list NVARCHAR(MAX)
+            END
+        """)
         conn.commit()
     except Exception as e:
         print(f"Migration error: {e}")

@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from database import get_db_connection
-from utils import speak_async, calculate_angle, draw_centered_transparent_text, CameraThread
+from utils import speak_async, calculate_angle, draw_centered_transparent_text, CameraThread, play_success_sound_async
 
 import hashlib
 import settings_manager
@@ -291,13 +291,9 @@ class CyberTrenerApp(ctk.CTk):
         appearance_menu = ctk.CTkOptionMenu(dialog, values=["Dark", "Light", "System"], variable=appearance_var)
         appearance_menu.pack(pady=(0, 15))
 
-        voice_var = ctk.BooleanVar(value=current_settings.get("voice_enabled", True))
-        voice_checkbox = ctk.CTkCheckBox(dialog, text="Asystent Głosowy (wymaga restartu)", variable=voice_var)
-        voice_checkbox.pack(pady=10)
-
         def save():
             current_settings["appearance"] = appearance_var.get()
-            current_settings["voice_enabled"] = voice_var.get()
+            current_settings["voice_enabled"] = True
             settings_manager.save_settings(current_settings)
             ctk.set_appearance_mode(current_settings["appearance"])
             speak_async("Ustawienia zostały zapisane.")
@@ -365,7 +361,10 @@ class CyberTrenerApp(ctk.CTk):
 
             conn.close()
 
-        left_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
+        columns_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        columns_frame.pack(side="top", fill="both", expand=True)
+
+        left_col = ctk.CTkFrame(columns_frame, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         left_col.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(left_col, text="Szybki Przegląd", font=ctk.CTkFont(size=20, weight="bold"),
                      text_color="#4CAF50").pack(anchor="w", padx=20, pady=(20, 10))
@@ -376,7 +375,7 @@ class CyberTrenerApp(ctk.CTk):
         ctk.CTkLabel(left_col, text=f"🏋 Łączny udźwig: {total_tonnage} kg", font=ctk.CTkFont(size=16)).pack(
             anchor="w", padx=20, pady=5)
 
-        right_col = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
+        right_col = ctk.CTkFrame(columns_frame, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
         right_col.pack(side="right", fill="both", expand=True, padx=10, pady=10)
         ctk.CTkLabel(right_col, text="Rekordy i Średnie", font=ctk.CTkFont(size=20, weight="bold"),
                      text_color="#2196F3").pack(anchor="w", padx=20, pady=(20, 10))
@@ -386,6 +385,32 @@ class CyberTrenerApp(ctk.CTk):
             anchor="w", padx=20, pady=5)
         ctk.CTkLabel(right_col, text=f"📅 Najlepszy dzień: {best_tonnage_date} ({best_tonnage_day} kg)", font=ctk.CTkFont(size=16)).pack(
             anchor="w", padx=20, pady=5)
+
+        errors_frame = ctk.CTkFrame(parent, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"))
+        errors_frame.pack(side="top", fill="x", expand=False, padx=10, pady=10)
+        ctk.CTkLabel(errors_frame, text="Najczęstsze błędy techniczne", font=ctk.CTkFont(size=20, weight="bold"),
+                     text_color="#F44336").pack(anchor="w", padx=20, pady=(20, 10))
+        
+        conn = get_db_connection()
+        if conn:
+            c = conn.cursor()
+            try:
+                c.execute("SELECT errors_list FROM workouts WHERE user_id = ?", (self.current_user_id,))
+                rows = c.fetchall()
+            except Exception:
+                rows = []
+            conn.close()
+            error_counts = {}
+            for row in rows:
+                if row[0] and row[0] != "Brak":
+                    for err in row[0].split(', '):
+                        error_counts[err] = error_counts.get(err, 0) + 1
+            if error_counts:
+                sorted_errors = sorted(error_counts.items(), key=lambda item: item[1], reverse=True)[:3]
+                for err, count in sorted_errors:
+                    ctk.CTkLabel(errors_frame, text=f"• {err} ({count} razy)", font=ctk.CTkFont(size=16)).pack(anchor="w", padx=20, pady=5)
+            else:
+                ctk.CTkLabel(errors_frame, text="Brak zarejestrowanych błędów!", font=ctk.CTkFont(size=16), text_color="#4CAF50").pack(anchor="w", padx=20, pady=5)
 
     def build_history_tab(self, parent):
         history_frame = ctk.CTkScrollableFrame(parent, width=350, corner_radius=15, fg_color=("#FFFFFF", "#2b2b2b"),
@@ -400,6 +425,7 @@ class CyberTrenerApp(ctk.CTk):
         reps_for_graph = []
         tonnage_for_graph = []
         max_weight_for_graph = []
+        quality_for_graph = []
 
         if conn:
             c = conn.cursor()
@@ -445,7 +471,8 @@ class CyberTrenerApp(ctk.CTk):
                     CAST(date AS DATE),
                     SUM(reps),
                     SUM(reps * dumbbell_weight_kg) as tonnage,
-                    MAX(dumbbell_weight_kg)
+                    MAX(dumbbell_weight_kg),
+                    AVG(quality_percentage)
                 FROM workouts 
                 WHERE user_id = ? 
                 GROUP BY CAST(date AS DATE) 
@@ -459,6 +486,7 @@ class CyberTrenerApp(ctk.CTk):
                 reps_for_graph.append(g_row[1] if g_row[1] else 0)
                 tonnage_for_graph.append(g_row[2] if g_row[2] else 0)
                 max_weight_for_graph.append(g_row[3] if g_row[3] else 0)
+                quality_for_graph.append(g_row[4] if len(g_row) > 4 and g_row[4] else 0)
 
         if dates_for_graph:
             is_light = ctk.get_appearance_mode() == "Light"
@@ -588,6 +616,34 @@ class CyberTrenerApp(ctk.CTk):
             canvas3 = FigureCanvasTkAgg(fig3, master=graph_frame)
             canvas3.draw()
             canvas3.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+            # ========== Graph 4 ==========
+
+            fig4 = Figure(figsize=(5, 4), dpi=100)
+            fig4.patch.set_facecolor(bg_color)
+            ax4 = fig4.add_subplot(111)
+            ax4.set_facecolor(bg_color)
+
+            ax4.plot(dates_for_graph, quality_for_graph, color='#9C27B0', marker='o', linestyle='-', linewidth=2,
+                    markersize=8)
+            ax4.fill_between(dates_for_graph, quality_for_graph, color='#6A1B9A', alpha=0.2)
+
+            ax4.set_ylim(bottom=0, top=105)
+
+            ax4.set_title('Jakość Treningu (%) według dni', color=text_color, pad=15)
+            ax4.tick_params(axis='x', colors=text_color)
+            ax4.tick_params(axis='y', colors=text_color)
+            ax4.spines['top'].set_visible(False)
+            ax4.spines['right'].set_visible(False)
+            ax4.spines['bottom'].set_color(spine_color)
+            ax4.spines['left'].set_color(spine_color)
+            ax4.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.7)
+
+            fig4.subplots_adjust(left=0.09, right=0.99, top=0.9, bottom=0.06)
+
+            canvas4 = FigureCanvasTkAgg(fig4, master=graph_frame)
+            canvas4.draw()
+            canvas4.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
         else:
             ctk.CTkLabel(graph_frame, text="Zrób pierwszy trening, aby zobaczyć wykres!", font=ctk.CTkFont(size=16),
                          text_color=("#6B6B6B", "gray")).pack(expand=True)
@@ -644,6 +700,12 @@ class CyberTrenerApp(ctk.CTk):
         self.stage = None
         self.start_time = time.time()
         self.last_stage_time = time.time()
+        self.last_rep_time = 0
+        self.angle_history = []
+        self.persistent_feedback = ""
+        self.feedback_expiry = 0
+        self.current_errors = []
+        self.last_spoken_error_time = 0
         
         self.frame_counter = 0
         self.last_results_front = None
@@ -658,7 +720,7 @@ class CyberTrenerApp(ctk.CTk):
                       command=self.stop_training).pack(side="left", padx=20, pady=15)
 
         self.info_label = ctk.CTkLabel(top_bar, text="Powtórzenia: 0  |  Technika: Gotowy",
-                                       font=ctk.CTkFont(size=18, weight="bold"))
+                                       font=ctk.CTkFont(size=24, weight="bold"))
         self.info_label.pack(side="right", padx=30, pady=15)
 
         self.video_frame = ctk.CTkFrame(self.container, corner_radius=15, fg_color=("#FFFFFF", "#111111"))
@@ -669,18 +731,18 @@ class CyberTrenerApp(ctk.CTk):
         self.front_frame.pack(side="left", padx=10, pady=10)
         self.video_label_front = tk.Label(self.front_frame, bg=bg_color)
         self.video_label_front.pack()
-        self.feedback_label_front = ctk.CTkLabel(self.front_frame, text="Stan w kadrze", font=ctk.CTkFont(size=18, weight="bold"), text_color="#FF6464")
+        self.feedback_label_front = ctk.CTkLabel(self.front_frame, text="Stan w kadrze", font=ctk.CTkFont(size=28, weight="bold"), text_color="#FF6464", width=540, height=80, wraplength=520)
         self.feedback_label_front.pack(pady=5)
 
         self.side_frame = ctk.CTkFrame(self.video_frame, fg_color="transparent")
         self.side_frame.pack(side="right", padx=10, pady=10)
         self.video_label_side = tk.Label(self.side_frame, bg=bg_color)
         self.video_label_side.pack()
-        self.feedback_label_side = ctk.CTkLabel(self.side_frame, text="Przygotuj się", font=ctk.CTkFont(size=18, weight="bold"), text_color="#32FF32")
+        self.feedback_label_side = ctk.CTkLabel(self.side_frame, text="Przygotuj się", font=ctk.CTkFont(size=28, weight="bold"), text_color="#32FF32", width=540, height=80, wraplength=520)
         self.feedback_label_side.pack(pady=5)
 
-        self.cap_front = CameraThread(0) 
-        self.cap_side = CameraThread(1)
+        self.cap_front = CameraThread(1) 
+        self.cap_side = CameraThread(0)
         speak_async("Trening rozpoczęty. Pamiętaj o prostej postawie.")
         self.update_video()
         
@@ -751,19 +813,49 @@ class CyberTrenerApp(ctk.CTk):
                 
                 keypoints = results_side[0].keypoints.xy[0].tolist()
                 
-                if len(keypoints) > 9 and keypoints[5][0] != 0 and keypoints[7][0] != 0 and keypoints[9][0] != 0:
-                    shoulder = [keypoints[5][0], keypoints[5][1]]
-                    elbow = [keypoints[7][0], keypoints[7][1]]
-                    wrist = [keypoints[9][0], keypoints[9][1]]
+                s_idx, e_idx, w_idx, h_idx = -1, -1, -1, -1
+                if len(keypoints) > 12:
+                    if keypoints[5][0] != 0 and keypoints[7][0] != 0 and keypoints[9][0] != 0:
+                        s_idx, e_idx, w_idx, h_idx = 5, 7, 9, 11
+                    elif keypoints[6][0] != 0 and keypoints[8][0] != 0 and keypoints[10][0] != 0:
+                        s_idx, e_idx, w_idx, h_idx = 6, 8, 10, 12
 
-                    angle = calculate_angle(shoulder, elbow, wrist)
+                if s_idx != -1:
+                    shoulder = [keypoints[s_idx][0], keypoints[s_idx][1]]
+                    elbow = [keypoints[e_idx][0], keypoints[e_idx][1]]
+                    wrist = [keypoints[w_idx][0], keypoints[w_idx][1]]
+                    hip = [keypoints[h_idx][0], keypoints[h_idx][1]]
+
+                    raw_angle = calculate_angle(shoulder, elbow, wrist)
+                    if not hasattr(self, 'angle_history'):
+                        self.angle_history = []
+                    self.angle_history.append(raw_angle)
+                    if len(self.angle_history) > 5:
+                        self.angle_history.pop(0)
+                    angle = sum(self.angle_history) / len(self.angle_history)
+                    
                     current_time = time.time()
                     
-                    if angle > 150:
+                    # Sprawdzanie czy łokieć jest blisko tułowia
+                    shoulder_hip_dist = ((shoulder[0]-hip[0])**2 + (shoulder[1]-hip[1])**2)**0.5
+                    elbow_offset = abs(elbow[0] - shoulder[0])
+                    elbow_warning = False
+                    if shoulder_hip_dist > 0 and (elbow_offset / shoulder_hip_dist) > 0.35:
+                        elbow_warning = True
+
+                    is_curling_up = wrist[1] < elbow[1] + 30  # nadgarstek wyżej lub na równi z łokciem
+                    is_arm_down = wrist[1] > elbow[1]         # nadgarstek niżej niż łokieć
+
+                    if angle > 140 and is_arm_down:
                         if self.stage in ["góra", "opuszczanie"]:
                             ecc_dur = current_time - self.last_stage_time
                             if ecc_dur < 0.6:
-                                feedback_side = "Za szybko w dół! (Zbyt swobodnie / вольней)"
+                                self.persistent_feedback = "Za szybko w dół! (Zbyt swobodnie)"
+                                self.feedback_expiry = current_time + 2.0
+                                if "Za szybko w dół!" not in self.current_errors: self.current_errors.append("Za szybko w dół!")
+                                if current_time - self.last_spoken_error_time > 3.0:
+                                    speak_async("Zbyt szybko!")
+                                    self.last_spoken_error_time = current_time
                             else:
                                 feedback_side = "Ręka wyprostowana (dół)"
                         elif self.stage != "dół":
@@ -771,18 +863,29 @@ class CyberTrenerApp(ctk.CTk):
                         self.stage = "dół"
                         self.last_stage_time = current_time
                         
-                    elif angle < 40:
+                    elif angle < 50 and is_curling_up:
                         if self.stage in ['dół', 'podnoszenie']:
                             conc_dur = current_time - self.last_stage_time
-                            self.rep_count += 1
-                            speak_async(f"{self.rep_count}")
                             
-                            if conc_dur > 2.0:
-                                feedback_side = "Świetnie (+1)! Ale spróbuj szybciej (шибчей)."
-                            elif conc_dur < 0.5:
-                                feedback_side = "Świetnie (+1)! Ale płynniej i swobodniej (вольней)."
-                            else:
-                                feedback_side = "Idealne powtórzenie (+1)!"
+                            if current_time - getattr(self, 'last_rep_time', 0) > 1.2:
+                                self.rep_count += 1
+                                play_success_sound_async()
+                                self.last_rep_time = current_time
+                                
+                                if elbow_warning:
+                                    self.persistent_feedback = "Zaliczone (+1), ale łokcie blisko tułowia!"
+                                    if "Odrywanie łokci" not in self.current_errors: self.current_errors.append("Odrywanie łokci")
+                                    if current_time - self.last_spoken_error_time > 3.0:
+                                        speak_async("Łokcie przy ciele")
+                                        self.last_spoken_error_time = current_time
+                                elif conc_dur > 2.0:
+                                    self.persistent_feedback = "Świetnie (+1)! Ale spróbuj szybciej."
+                                elif conc_dur < 0.5:
+                                    self.persistent_feedback = "Świetnie (+1)! Ale płynniej i swobodniej."
+                                else:
+                                    self.persistent_feedback = "Idealne powtórzenie (+1)!"
+                                
+                                self.feedback_expiry = current_time + 3.0
                                 
                             self.stage = "góra"
                             self.last_stage_time = current_time
@@ -790,12 +893,22 @@ class CyberTrenerApp(ctk.CTk):
                     elif self.stage == 'dół' and angle < 140:
                         self.stage = 'podnoszenie'
                         self.last_stage_time = current_time
-                        feedback_side = "Płynnie w górę, pracuj bicepsem..."
+                        if elbow_warning:
+                            feedback_side = "Uwaga: nie odrywaj łokci od ciała!"
+                            if "Odrywanie łokci" not in self.current_errors: self.current_errors.append("Odrywanie łokci")
+                        else:
+                            feedback_side = "Płynnie w górę, pracuj bicepsem..."
                         
                     elif self.stage == 'podnoszenie':
                         conc_dur = current_time - self.last_stage_time
-                        if conc_dur > 1.5:
-                            feedback_side = "Trochę szybciej! (шибчей) Nie zatrzymuj ruchu."
+                        if elbow_warning:
+                            feedback_side = "Uwaga: łokcie przy ciele!"
+                            if "Odrywanie łokci" not in self.current_errors: self.current_errors.append("Odrywanie łokci")
+                            if current_time - self.last_spoken_error_time > 3.0:
+                                speak_async("Łokcie przy ciele")
+                                self.last_spoken_error_time = current_time
+                        elif conc_dur > 1.5:
+                            feedback_side = "Trochę szybciej! Nie zatrzymuj ruchu."
                         else:
                             feedback_side = "Dobrze, dociągnij ruch."
                             
@@ -806,17 +919,22 @@ class CyberTrenerApp(ctk.CTk):
                         
                     elif self.stage == 'opuszczanie':
                         ecc_dur = current_time - self.last_stage_time
-                        if ecc_dur < 0.4:
+                        if elbow_warning:
+                            feedback_side = "Trzymaj łokcie blisko tułowia w dół!"
+                            if "Odrywanie łokci" not in self.current_errors: self.current_errors.append("Odrywanie łokci")
+                        elif ecc_dur < 0.4:
                             feedback_side = "Za szybko! Hamuj ciężar."
                         else:
                             feedback_side = "Pełna kontrola, bardzo dobrze."
 
-                    if feedback_side:
-                        self.feedback_label_side.configure(text=f"{feedback_side} (Kąt: {int(angle)}°)", text_color="#32FF32" if "+" in feedback_side or "Dobrze" in feedback_side or "Pełna kontrola" in feedback_side or "Idealne" in feedback_side else "#FFD700")
+                    display_text = self.persistent_feedback if current_time < getattr(self, 'feedback_expiry', 0) else feedback_side
+
+                    if display_text:
+                        self.feedback_label_side.configure(text=f"{display_text} (Kąt: {int(angle)}°)", text_color="#32FF32" if "+" in display_text or "Dobrze" in display_text or "Pełna kontrola" in display_text or "Idealne" in display_text else "#FFD700")
                     else:
                         self.feedback_label_side.configure(text=f"Wykryto ramię (Kąt: {int(angle)}°)", text_color="#FFFFFF")
                     
-                    self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {feedback_side if feedback_side else 'W toku'}")
+                    self.info_label.configure(text=f"Powtórzenia: {self.rep_count}  |  Technika: {display_text if display_text else 'W toku'}")
 
             img_side = Image.fromarray(image_side_rgb)
             imgtk_side = ImageTk.PhotoImage(image=img_side)
@@ -842,16 +960,18 @@ class CyberTrenerApp(ctk.CTk):
         current_date = datetime.datetime.now()
 
         if self.rep_count > 0:
+            quality_percentage = max(0, 100 - (len(self.current_errors) * 15))
+            errors_list_str = ", ".join(self.current_errors) if self.current_errors else "Brak"
             try:
                 conn = get_db_connection()
                 if conn:
                     c = conn.cursor()
                     c.execute(
-                        "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec, dumbbell_weight_kg) VALUES (?, ?, ?, ?, ?, ?)",
-                        (self.current_user_id, current_date, "Biceps", self.rep_count, duration, self.current_weight))
+                        "INSERT INTO workouts (user_id, date, exercise_type, reps, duration_sec, dumbbell_weight_kg, quality_percentage, errors_list) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (self.current_user_id, current_date, "Biceps", self.rep_count, duration, self.current_weight, quality_percentage, errors_list_str))
                     conn.commit()
                     conn.close()
-                    speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń.")
+                    speak_async(f"Świetna robota. Zapisano {self.rep_count} powtórzeń. Jakość: {quality_percentage} procent.")
                 else:
                     speak_async("Brak połączenia z bazą danych.")
             except Exception as e:
